@@ -94,12 +94,17 @@ textarea{min-height:110px;font-size:12px}
     <button data-preset="normal">Normal</button>
     <button data-preset="safe">Sicherer</button>
   </div>
-  <p class="hint">Früh = junge Coins, mehr Treffer, mehr Risiko. Sicherer = mehr Liquidität, weniger Treffer.</p>
+  <p class="hint">Früh = bis 6h alt, MC bis 1,5M. Normal = bis 24h, MC bis 5M. Sicherer = mehr Liquidität, weniger Treffer.</p>
   <div class="row">
     <div><label for="minLiq">Min. Liquidität $</label><input id="minLiq" type="number" inputmode="numeric"></div>
     <div><label for="minVol">Min. Vol. 1h $</label><input id="minVol" type="number" inputmode="numeric"></div>
     <div><label for="minScore">Min. Score</label><input id="minScore" type="number" inputmode="numeric"></div>
   </div>
+  <div class="row" style="grid-template-columns:1fr 1fr">
+    <div><label for="maxAge">Max. Alter (Stunden)</label><input id="maxAge" type="number" inputmode="numeric"></div>
+    <div><label for="maxMc">Max. Market Cap $</label><input id="maxMc" type="number" inputmode="numeric"></div>
+  </div>
+  <p class="hint">Kleine Market Cap = mehr Luft nach oben, aber auch mehr Risiko.</p>
   <div class="actions">
     <button id="closeSettings">Abbrechen</button>
     <button class="primary" id="saveSettings">Speichern</button>
@@ -109,7 +114,8 @@ textarea{min-height:110px;font-size:12px}
 <script>
 const DEX = "https://api.dexscreener.com";
 const TOKEN_PROGRAMS = ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","TokenzQdBNbLqP5VEhdkAS6EPFLC1PQnF8yVtgi"];
-const DEFAULTS = {rpc:"https://api.mainnet-beta.solana.com", wallets:"", minLiq:15000, minVol:20000, minScore:55};
+const DEFAULTS = {rpc:"https://api.mainnet-beta.solana.com", wallets:"", minLiq:15000, minVol:20000, minScore:60, maxAge:24, maxMc:5000000};
+const gtStats = {};
 const $ = id => document.getElementById(id);
 
 function load(key, fallback){ try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }catch{ return fallback; } }
@@ -132,8 +138,10 @@ const SKIP = new Set(["So11111111111111111111111111111111111111112","EPjFWdd5Auf
 async function candidates(){
   const paths = ["/token-boosts/latest/v1","/token-boosts/top/v1","/token-profiles/latest/v1"];
   const gtUrls = [];
-  for(const pg of [1,2,3]){
-    gtUrls.push(`${GT}/networks/solana/new_pools?page=${pg}`);
+  for(const pg of [1,2,3]) gtUrls.push(`${GT}/networks/solana/new_pools?page=${pg}`);
+  for(const pg of [1,2]){
+    gtUrls.push(`${GT}/networks/solana/trending_pools?page=${pg}&duration=5m`);
+    gtUrls.push(`${GT}/networks/solana/trending_pools?page=${pg}&duration=1h`);
     gtUrls.push(`${GT}/networks/solana/trending_pools?page=${pg}`);
   }
   const [dex, gt] = await Promise.all([
@@ -145,7 +153,13 @@ async function candidates(){
   gt.forEach(d => (d?.data||[]).forEach(pool => {
     const id = pool.relationships?.base_token?.data?.id || "";
     const mint = id.startsWith("solana_") ? id.slice(7) : "";
-    if(mint && !SKIP.has(mint)) mints.add(mint);
+    if(!mint || SKIP.has(mint)) return;
+    mints.add(mint);
+    const h1 = pool.attributes?.transactions?.h1;
+    if(h1 && (h1.buyers != null)){
+      const prev = gtStats[mint];
+      if(!prev || h1.buyers > prev.buyers) gtStats[mint] = {buyers:h1.buyers||0, sellers:h1.sellers||0};
+    }
   }));
   return [...mints];
 }
@@ -195,33 +209,64 @@ async function smartMoney(){
 async function rugcheck(mint){
   if(mint in rugCache) return rugCache[mint];
   const d = await getJSON(`https://api.rugcheck.xyz/v1/tokens/${mint}/report/summary`);
-  const r = d ? {ok:true, score:d.score_normalised ?? d.score, dangers:(d.risks||[]).filter(x=>x.level==="danger").map(x=>x.name)} : {ok:false, dangers:[]};
+  const r = d ? {ok:true, score:d.score_normalised ?? d.score, dangers:(d.risks||[]).filter(x=>x.level==="danger").map(x=>x.name), warns:(d.risks||[]).filter(x=>x.level==="warn").map(x=>x.name)} : {ok:false, dangers:[], warns:[]};
   rugCache[mint] = r; return r;
 }
 
 function score(p, sm){
   const reasons=[], warn=[]; let s=0;
-  const vol=p.volume||{}, chg=p.priceChange||{}, tx=p.txns?.h1||{};
-  const liq=p.liquidity?.usd||0, avg=(vol.h6||0)/6, accel=avg ? (vol.h1||0)/avg : 0;
-  if(accel>2){ s+=20; reasons.push(`Volumen x${accel.toFixed(1)} vs. 6h-Schnitt`); }
-  else if(accel>1.3){ s+=10; reasons.push(`Volumen steigt (x${accel.toFixed(1)})`); }
+  const vol=p.volume||{}, chg=p.priceChange||{}, tx=p.txns?.h1||{}, t5=p.txns?.m5||{};
+  const liq=p.liquidity?.usd||0, mc=p.marketCap||p.fdv||0;
+  const ageH=(Date.now()-(p.pairCreatedAt||0))/3.6e6;
+
+  // Volumen-Beschleunigung, korrigiert fuers Alter (junge Coins nicht kuenstlich hochrechnen)
+  let accel=0, accelTxt="";
+  if(ageH>=2){ const hrs=Math.min(ageH,6); accel=(vol.h1||0)/((vol.h6||0)/hrs||1); accelTxt="vs. Schnitt"; }
+  else if(vol.h1){ accel=((vol.m5||0)*12)/vol.h1; accelTxt="5 min vs. 1h"; }
+  if(accel>3){ s+=15; reasons.push(`Volumen x${accel.toFixed(1)} (${accelTxt})`); }
+  else if(accel>1.5){ s+=8; reasons.push(`Volumen steigt x${accel.toFixed(1)} (${accelTxt})`); }
+
+  // Echte Menschen: eindeutige Kaeufer (GeckoTerminal)
+  const g=gtStats[p.baseToken.address];
+  if(g){
+    if(g.buyers>150){ s+=10; reasons.push(`${g.buyers} verschiedene Käufer in 1h`); }
+    else if(g.buyers>50){ s+=5; reasons.push(`${g.buyers} verschiedene Käufer in 1h`); }
+    if(g.buyers>20 && g.buyers>g.sellers*1.3) s+=5;
+  }
+
   const buys=tx.buys||0, sells=tx.sells||0, ratio=buys/Math.max(sells,1);
-  if(ratio>1.5){ s+=15; reasons.push(`Käufer dominieren (${buys} Buys / ${sells} Sells)`); } else if(ratio>1.1) s+=7;
-  const h1=chg.h1||0;
+  if(ratio>1.5){ s+=10; reasons.push(`Käufer dominieren (${buys} Buys / ${sells} Sells)`); } else if(ratio>1.1) s+=5;
+
+  if((t5.buys||0)>=10 && t5.buys>(t5.sells||0)*1.3){ s+=10; reasons.push(`Gerade jetzt Käufe (${t5.buys} / ${t5.sells||0} in 5 min)`); }
+
+  const h1=chg.h1||0, m5=chg.m5||0, h24=chg.h24||0;
   if(h1>5 && h1<80){ s+=10; reasons.push(`${pct(h1)} in 1h`); }
   if(h1>200){ s-=15; warn.push(`${pct(h1)} in 1h – Gefahr, am Top zu kaufen`); }
-  const t5=p.txns?.m5||{};
-  if((t5.buys||0)>=10 && t5.buys > (t5.sells||0)*1.3){ s+=10; reasons.push(`Gerade jetzt Käufe (${t5.buys} Buys / ${t5.sells||0} Sells in 5 min)`); }
-  if(liq>50000) s+=10;
-  const ageH=(Date.now()-(p.pairCreatedAt||0))/3.6e6;
-  if(ageH>0.25 && ageH<48) s+=5;
+  if(m5<-15){ s-=10; warn.push(`${pct(m5)} in 5 min – wird gerade abverkauft`); }
+  if(h24>1000) warn.push(`${pct(h24)} in 24h – schon extrem gelaufen`);
+
+  // Luft nach oben
+  if(mc>=30000 && mc<=1500000){ s+=10; reasons.push(`Kleine Market Cap ($${fmt(mc)}) – viel Luft nach oben`); }
+
+  // Gesunde Liquiditaet
+  const lr = mc ? liq/mc : 0;
+  if(liq>30000) s+=5;
+  if(lr>=0.08 && lr<=0.6) s+=5;
+  else if(mc && lr<0.05){ s-=5; warn.push("Wenig Liquidität im Verhältnis zur MC – schwer zu verkaufen"); }
+
+  // Bot-Volumen: sehr viele Mini-Trades
+  const nTx=buys+sells, avgTrade=nTx ? (vol.h1||0)/nTx : 0;
+  if(nTx>50 && avgTrade<15){ s-=10; warn.push(`Ø Trade nur $${avgTrade.toFixed(0)} – wahrscheinlich Bot-Volumen`); }
+
+  if(ageH>0.25 && ageH<24) s+=5;
   if(ageH<=0.25) warn.push("Unter 15 min alt – extrem riskant");
   if(p.info?.socials?.length){ s+=5; reasons.push("Socials vorhanden"); }
+
   if(sm){
     s += Math.min(sm.holders*8,25) + Math.min(sm.accumulating*10,20);
     reasons.push(`Smart Money: ${sm.holders} halten, ${sm.accumulating} kaufen nach`);
   }
-  return {s:Math.max(0,Math.min(100,Math.round(s))), reasons, warn, ageH, liq};
+  return {s:Math.max(0,Math.min(100,Math.round(s))), reasons, warn, ageH, liq, mc};
 }
 
 function ring(v){
@@ -234,7 +279,7 @@ function render(rows){
   const list = $("list");
   if(!rows.length){ list.innerHTML = `<div class="empty">Gerade kein Coin über deinem Min-Score. Senk ihn unter ⚙️ oder scann in ein paar Minuten nochmal.</div>`; return; }
   list.innerHTML = rows.map(({p,r,rc,fresh}) => {
-    const t=p.baseToken, mc=p.marketCap||p.fdv||0, h1=p.priceChange?.h1||0, h24=p.priceChange?.h24||0;
+    const t=p.baseToken, mc=p.marketCap||p.fdv||0, h1=p.priceChange?.h1||0, m5=p.priceChange?.m5||0;
     return `<article class="coin${fresh?" fresh":""}">
       ${ring(r.s)}
       <div>
@@ -242,7 +287,7 @@ function render(rows){
         <div class="stats">
           <div><span>Market Cap</span>$${fmt(mc)}</div>
           <div><span>Liquidität</span>$${fmt(r.liq)}</div>
-          <div><span>1h / 24h</span><em class="${h1>=0?"up":"down"}">${pct(h1)}</em> <em class="${h24>=0?"up":"down"}">${pct(h24)}</em></div>
+          <div><span>5m / 1h</span><em class="${m5>=0?"up":"down"}">${pct(m5)}</em> <em class="${h1>=0?"up":"down"}">${pct(h1)}</em></div>
           <div><span>Alter</span>${r.ageH<1?Math.round(r.ageH*60)+" min":r.ageH.toFixed(1)+" h"}</div>
         </div>
         <ul>${r.reasons.map(x=>`<li>✅ ${esc(x)}</li>`).join("")}
@@ -272,25 +317,40 @@ async function scan(){
     const sm = hasWallets ? await smartMoney() : {};
     const extra = Object.entries(sm).filter(([m,e])=>e.accumulating).map(([m])=>m).filter(m=>!mints.includes(m));
     setStatus(`Analysiere ${mints.length+extra.length} Coins …`);
-    const pairs = await pairData([...extra, ...mints].slice(0,240));
+    const pairs = await pairData([...extra, ...mints].slice(0,300));
     const scored=[];
     for(const [mint,p] of Object.entries(pairs)){
-      const liq=p.liquidity?.usd||0, vol=p.volume?.h1||0, ageH=(Date.now()-(p.pairCreatedAt||0))/3.6e6;
-      if(liq<cfg.minLiq || vol<cfg.minVol || ageH>72) continue;
+      const liq=p.liquidity?.usd||0, vol=p.volume?.h1||0, ageH=(Date.now()-(p.pairCreatedAt||0))/3.6e6, mc=p.marketCap||p.fdv||0;
+      const smHit = sm[mint]?.accumulating > 0;   // Smart-Money-Kaeufe immer anzeigen
+      if(!smHit && (liq<cfg.minLiq || vol<cfg.minVol || ageH>cfg.maxAge || (cfg.maxMc && mc>cfg.maxMc))) continue;
       scored.push({mint, p, r:score(p, sm[mint])});
     }
     scored.sort((a,b)=>b.r.s-a.r.s);
-    const hits = scored.filter(x=>x.r.s>=cfg.minScore);
-    const nearMiss = !hits.length;
-    const pick = nearMiss ? scored.slice(0,5) : hits.slice(0,25);
-    const rows=[];
-    for(const {mint,p,r} of pick){
-      const rc = await rugcheck(mint);
-      if(rc.dangers.length) continue;
-      const fresh = !nearMiss && !seen[mint];
-      if(!nearMiss) seen[mint] = Date.now();
-      rows.push({p,r,rc,fresh});
+    let pool = scored.filter(x=>x.r.s>=cfg.minScore-10).slice(0,30);
+    if(!pool.length) pool = scored.slice(0,8);
+    setStatus(`RugCheck für ${pool.length} Coins …`);
+    const checked=[];
+    for(let i=0;i<pool.length;i+=5){
+      const part = pool.slice(i,i+5);
+      const rcs = await Promise.all(part.map(x=>rugcheck(x.mint)));
+      part.forEach((x,j)=>{
+        const rc=rcs[j];
+        if(rc.dangers.length) return;
+        if(rc.warns?.length){
+          x.r.s = Math.max(0, x.r.s - Math.min(rc.warns.length*5,15));
+          x.r.warn.push("RugCheck-Warnung: " + rc.warns.slice(0,3).join(", "));
+        }
+        checked.push({...x, rc});
+      });
     }
+    checked.sort((a,b)=>b.r.s-a.r.s);
+    const hits = checked.filter(x=>x.r.s>=cfg.minScore);
+    const nearMiss = !hits.length;
+    const rows = (nearMiss ? checked.slice(0,5) : hits.slice(0,25)).map(x=>{
+      const fresh = !nearMiss && !seen[x.mint];
+      if(!nearMiss) seen[x.mint] = Date.now();
+      return {p:x.p, r:x.r, rc:x.rc, fresh};
+    });
     store("seen", seen);
     render(rows);
     const time = new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
@@ -310,16 +370,16 @@ $("scanBtn").onclick = scan;
 let timer=null;
 $("auto").onchange = e => { clearInterval(timer); if(e.target.checked){ scan(); timer=setInterval(scan,60000); } };
 
-const fields = ["rpc","wallets","minLiq","minVol","minScore"];
+const fields = ["rpc","wallets","minLiq","minVol","minScore","maxAge","maxMc"];
 $("openSettings").onclick = () => { fields.forEach(f=>$(f).value = cfg[f]); $("settings").showModal(); };
 $("closeSettings").onclick = () => $("settings").close();
-const PRESETS = {early:[8000,10000,50], normal:[15000,20000,55], safe:[50000,50000,65]};
+const PRESETS = {early:[8000,10000,55,6,1500000], normal:[15000,20000,60,24,5000000], safe:[40000,40000,70,72,20000000]};
 document.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
-  const [l,v,s] = PRESETS[b.dataset.preset];
-  $("minLiq").value=l; $("minVol").value=v; $("minScore").value=s;
+  const [l,v,sc,a,m] = PRESETS[b.dataset.preset];
+  $("minLiq").value=l; $("minVol").value=v; $("minScore").value=sc; $("maxAge").value=a; $("maxMc").value=m;
 });
 $("saveSettings").onclick = () => {
-  fields.forEach(f => { const v=$(f).value.trim(); cfg[f] = ["minLiq","minVol","minScore"].includes(f) ? Number(v)||DEFAULTS[f] : (v||DEFAULTS[f]); });
+  fields.forEach(f => { const v=$(f).value.trim(); cfg[f] = ["minLiq","minVol","minScore","maxAge","maxMc"].includes(f) ? Number(v)||DEFAULTS[f] : (v||DEFAULTS[f]); });
   store("cfg", cfg); $("settings").close(); setStatus("Gespeichert. Tippe auf „Jetzt scannen“.");
 };
 </script>
