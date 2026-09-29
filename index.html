@@ -51,6 +51,7 @@ li.warn{color:var(--warn)}
 .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .actions a,.actions button{flex:1;min-width:90px;text-align:center;background:transparent;border:1px solid var(--line);border-radius:10px;padding:9px 6px;color:var(--text);text-decoration:none;font-size:13.5px;cursor:pointer}
 .actions .primary{border-color:var(--pump);color:var(--pump)}
+.actions .fomo{flex-basis:100%;background:var(--pump);border-color:var(--pump);color:#1a0b14;font-weight:600;font-size:15px;padding:11px}
 .empty{text-align:center;color:var(--muted);padding:40px 16px;border:1px dashed var(--line);border-radius:18px}
 dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:18px;width:min(560px,94vw);padding:20px}
 dialog::backdrop{background:rgba(10,8,25,.7)}
@@ -87,6 +88,13 @@ textarea{min-height:110px;font-size:12px}
   <p class="hint">Ohne eigenen RPC funktioniert Smart Money kaum – der öffentliche blockt schnell.</p>
   <label for="wallets">Smart-Money-Wallets (eine pro Zeile)</label>
   <textarea id="wallets" placeholder="Wallet-Adressen von GMGN, Cielo, KOLscan …"></textarea>
+  <label>Voreinstellung</label>
+  <div class="actions" style="margin-top:0">
+    <button data-preset="early">Früh</button>
+    <button data-preset="normal">Normal</button>
+    <button data-preset="safe">Sicherer</button>
+  </div>
+  <p class="hint">Früh = junge Coins, mehr Treffer, mehr Risiko. Sicherer = mehr Liquidität, weniger Treffer.</p>
   <div class="row">
     <div><label for="minLiq">Min. Liquidität $</label><input id="minLiq" type="number" inputmode="numeric"></div>
     <div><label for="minVol">Min. Vol. 1h $</label><input id="minVol" type="number" inputmode="numeric"></div>
@@ -118,11 +126,27 @@ const fmt = n => n >= 1e6 ? (n/1e6).toFixed(2)+"M" : n >= 1e3 ? (n/1e3).toFixed(
 const pct = n => (n>0?"+":"") + (n||0).toFixed(0) + "%";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
+const GT = "https://api.geckoterminal.com/api/v2";
+const SKIP = new Set(["So11111111111111111111111111111111111111112","EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"]);
+
 async function candidates(){
   const paths = ["/token-boosts/latest/v1","/token-boosts/top/v1","/token-profiles/latest/v1"];
-  const res = await Promise.all(paths.map(p => getJSON(DEX+p)));
+  const gtUrls = [];
+  for(const pg of [1,2,3]){
+    gtUrls.push(`${GT}/networks/solana/new_pools?page=${pg}`);
+    gtUrls.push(`${GT}/networks/solana/trending_pools?page=${pg}`);
+  }
+  const [dex, gt] = await Promise.all([
+    Promise.all(paths.map(p => getJSON(DEX+p))),
+    Promise.all(gtUrls.map(u => getJSON(u, {headers:{Accept:"application/json"}})))
+  ]);
   const mints = new Set();
-  res.forEach(list => (list||[]).forEach(t => { if(t.chainId==="solana" && t.tokenAddress) mints.add(t.tokenAddress); }));
+  dex.forEach(list => (list||[]).forEach(t => { if(t.chainId==="solana" && t.tokenAddress) mints.add(t.tokenAddress); }));
+  gt.forEach(d => (d?.data||[]).forEach(pool => {
+    const id = pool.relationships?.base_token?.data?.id || "";
+    const mint = id.startsWith("solana_") ? id.slice(7) : "";
+    if(mint && !SKIP.has(mint)) mints.add(mint);
+  }));
   return [...mints];
 }
 
@@ -186,9 +210,12 @@ function score(p, sm){
   const h1=chg.h1||0;
   if(h1>5 && h1<80){ s+=10; reasons.push(`${pct(h1)} in 1h`); }
   if(h1>200){ s-=15; warn.push(`${pct(h1)} in 1h – Gefahr, am Top zu kaufen`); }
+  const t5=p.txns?.m5||{};
+  if((t5.buys||0)>=10 && t5.buys > (t5.sells||0)*1.3){ s+=10; reasons.push(`Gerade jetzt Käufe (${t5.buys} Buys / ${t5.sells||0} Sells in 5 min)`); }
   if(liq>50000) s+=10;
   const ageH=(Date.now()-(p.pairCreatedAt||0))/3.6e6;
-  if(ageH>1 && ageH<48) s+=5;
+  if(ageH>0.25 && ageH<48) s+=5;
+  if(ageH<=0.25) warn.push("Unter 15 min alt – extrem riskant");
   if(p.info?.socials?.length){ s+=5; reasons.push("Socials vorhanden"); }
   if(sm){
     s += Math.min(sm.holders*8,25) + Math.min(sm.accumulating*10,20);
@@ -222,6 +249,7 @@ function render(rows){
           ${r.warn.map(x=>`<li class="warn">⚠️ ${esc(x)}</li>`).join("")}
           <li>${rc.ok?`🛡️ RugCheck: keine Danger-Flags (Score ${esc(rc.score)})`:`<span class="warn">🛡️ RugCheck nicht erreichbar – selbst prüfen</span>`}</li></ul>
         <div class="actions">
+          <a class="fomo" href="https://fomo.family/tokens/solana/${esc(t.address)}" target="_blank" rel="noopener">In FOMO öffnen</a>
           <button class="primary" data-ca="${esc(t.address)}">CA kopieren</button>
           <a href="${esc(p.url)}" target="_blank" rel="noopener">Chart</a>
           <a href="https://x.com/search?q=${encodeURIComponent(t.address)}&f=live" target="_blank" rel="noopener">X checken</a>
@@ -244,23 +272,30 @@ async function scan(){
     const sm = hasWallets ? await smartMoney() : {};
     const extra = Object.entries(sm).filter(([m,e])=>e.accumulating).map(([m])=>m).filter(m=>!mints.includes(m));
     setStatus(`Analysiere ${mints.length+extra.length} Coins …`);
-    const pairs = await pairData([...mints, ...extra].slice(0,150));
-    const rows=[];
+    const pairs = await pairData([...extra, ...mints].slice(0,240));
+    const scored=[];
     for(const [mint,p] of Object.entries(pairs)){
       const liq=p.liquidity?.usd||0, vol=p.volume?.h1||0, ageH=(Date.now()-(p.pairCreatedAt||0))/3.6e6;
       if(liq<cfg.minLiq || vol<cfg.minVol || ageH>72) continue;
-      const r = score(p, sm[mint]);
-      if(r.s < cfg.minScore) continue;
+      scored.push({mint, p, r:score(p, sm[mint])});
+    }
+    scored.sort((a,b)=>b.r.s-a.r.s);
+    const hits = scored.filter(x=>x.r.s>=cfg.minScore);
+    const nearMiss = !hits.length;
+    const pick = nearMiss ? scored.slice(0,5) : hits.slice(0,25);
+    const rows=[];
+    for(const {mint,p,r} of pick){
       const rc = await rugcheck(mint);
       if(rc.dangers.length) continue;
-      const fresh = !seen[mint]; seen[mint] = Date.now();
+      const fresh = !nearMiss && !seen[mint];
+      if(!nearMiss) seen[mint] = Date.now();
       rows.push({p,r,rc,fresh});
     }
     store("seen", seen);
-    rows.sort((a,b)=>b.r.s-a.r.s);
     render(rows);
     const time = new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
-    setStatus(`${rows.length} Treffer · Stand ${time}${hasWallets?"":" · ohne Smart Money (Wallets unter ⚙️ eintragen)"}`);
+    const head = nearMiss ? `Kein Coin über Score ${cfg.minScore} – hier die ${rows.length} besten knapp darunter` : `${rows.length} Treffer`;
+    setStatus(`${head} · ${Object.keys(pairs).length} Coins geprüft · Stand ${time}${hasWallets?"":" · ohne Smart Money"}`);
     if(rows.some(x=>x.fresh) && navigator.vibrate) navigator.vibrate(150);
   } finally { busy=false; $("scanBtn").disabled=false; }
 }
@@ -278,6 +313,11 @@ $("auto").onchange = e => { clearInterval(timer); if(e.target.checked){ scan(); 
 const fields = ["rpc","wallets","minLiq","minVol","minScore"];
 $("openSettings").onclick = () => { fields.forEach(f=>$(f).value = cfg[f]); $("settings").showModal(); };
 $("closeSettings").onclick = () => $("settings").close();
+const PRESETS = {early:[8000,10000,50], normal:[15000,20000,55], safe:[50000,50000,65]};
+document.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
+  const [l,v,s] = PRESETS[b.dataset.preset];
+  $("minLiq").value=l; $("minVol").value=v; $("minScore").value=s;
+});
 $("saveSettings").onclick = () => {
   fields.forEach(f => { const v=$(f).value.trim(); cfg[f] = ["minLiq","minVol","minScore"].includes(f) ? Number(v)||DEFAULTS[f] : (v||DEFAULTS[f]); });
   store("cfg", cfg); $("settings").close(); setStatus("Gespeichert. Tippe auf „Jetzt scannen“.");
