@@ -140,6 +140,14 @@ table.sig{min-width:1100px}
 .radar .sb i{display:block;height:100%}
 .opts{display:flex;flex-wrap:wrap;gap:10px 16px;font-size:13px;color:var(--mute)}
 .opts label{display:flex;gap:5px;align-items:center;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;font-size:13px;color:var(--mute)}
+#tbody tr{cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+.links{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.links a,.links button{display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);text-decoration:none;font-weight:700;font-size:13px;cursor:pointer;text-align:center}
+.links a:hover,.links button:hover{border-color:var(--mute)}
+.links .fomo{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.links .xbtn{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.ca{font:12px var(--mono);color:var(--mute);word-break:break-all;background:var(--panel2);padding:6px 8px;border-radius:6px}
 @media (prefers-reduced-motion:reduce){.flash-up,.flash-down{animation:none}}
 </style>
 </head>
@@ -673,7 +681,7 @@ function render(){
       <td>${safeBadge(safetyMap[k])}</td>
       <td>${signals[k] ? scoreBadge(k) : '<span class="flat">–</span>'}</td>
       <td><span class="pill ${tv}" title="Trend ${tfLabel}">${pill}</span></td>
-      <td><div class="act"><button data-copy="${esc(p.baseToken.address)}">CA</button><a href="${esc(p.url)}" target="_blank" rel="noopener">Chart</a></div></td>
+      <td><div class="act"><a href="${fomoUrl(p)}" target="_blank" rel="noopener">FOMO</a><a href="${xSearchUrl(p)}" target="_blank" rel="noopener">X</a><button data-copy="${esc(p.baseToken.address)}">CA</button></div></td>
     </tr>`;
   }).join("");
   $("empty").hidden = rows.length > 0;
@@ -942,19 +950,81 @@ function renderSignals(){
 }
 
 // ---------- Sicherheit ----------
+const safetyErr = {};
 async function getSafety(p){
-  try{
-    const r = await fetch(`/api/safety?chain=${p.chainId}&ca=${encodeURIComponent(p.baseToken.address)}`);
-    const d = await r.json();
-    if (r.ok && !d.error){ safetyMap[keyOf(p.chainId, p.baseToken.address)] = d; saveSafety(); return d; }
-    return {error: d.error || "nicht verfügbar", checks: []};
-  }catch(e){ return {error: "Server nicht erreichbar", checks: []}; }
+  const k = keyOf(p.chainId, p.baseToken.address);
+  const cached = safetyMap[k];
+  if (cached && !cached.error && Date.now() - (cached.at || 0) * 1000 < 30 * 60000) return cached;
+  let d = null, err = "";
+  if (server){
+    try{
+      const r = await fetch(`/api/safety?chain=${p.chainId}&ca=${encodeURIComponent(p.baseToken.address)}`);
+      const j = await r.json();
+      if (r.ok && !j.error) d = j; else err = j.error || "";
+    }catch(e){}
+  }
+  if (!d){
+    try{ d = await safetyDirect(p.chainId, p.baseToken.address); }
+    catch(e){ err = err || e.message; }
+  }
+  if (d){ safetyMap[k] = d; delete safetyErr[k]; saveSafety(); radarCache.delete(k); return d; }
+  safetyErr[k] = {error: err || "Sicherheits-Check nicht erreichbar", checks: [], t: Date.now()};
+  return safetyErr[k];
+}
+// Direkt aus dem Browser (für GitHub Pages ohne Server)
+async function safetyDirect(chain, ca){
+  const checks = [];
+  let source, safe = null, holders = null;
+  if (chain === "solana"){
+    source = "RugCheck";
+    const r = await fetch(`https://api.rugcheck.xyz/v1/tokens/${ca}/report/summary`);
+    if (!r.ok) throw new Error("RugCheck HTTP " + r.status);
+    const j = await r.json();
+    for (const x of (j.risks || [])){
+      const lvl = {danger:"danger", warn:"warn"}[String(x.level || "").toLowerCase()] || "info";
+      checks.push({level: lvl, text: (x.name || "Risiko") + (x.value ? ` (${x.value})` : ""), detail: x.description || ""});
+    }
+    if (j.score_normalised != null) safe = Math.max(0, 100 - Math.round(j.score_normalised));
+  } else {
+    source = "GoPlus";
+    const id = {bsc:"56", base:"8453"}[chain];
+    const r = await fetch(`https://api.gopluslabs.io/api/v1/token_security/${id}?contract_addresses=${ca}`);
+    if (!r.ok) throw new Error("GoPlus HTTP " + r.status);
+    const j = await r.json();
+    const res = j.result || {};
+    const t = res[ca.toLowerCase()] || Object.values(res)[0];
+    if (!t) throw new Error("GoPlus kennt den Token noch nicht");
+    const f = v => parseFloat(v) || 0;
+    const add = (c, lvl, text) => { if (c) checks.push({level: lvl, text, detail: ""}); };
+    const bt = f(t.buy_tax), st = f(t.sell_tax);
+    add(t.is_honeypot === "1", "danger", "Honeypot: Verkaufen nicht möglich");
+    add(t.cannot_sell_all === "1", "danger", "Nicht alles verkaufbar");
+    add(st >= 0.1 || bt >= 0.1, "danger", `Hohe Steuer: Kauf ${Math.round(bt*100)} %, Verkauf ${Math.round(st*100)} %`);
+    add(Math.max(bt, st) >= 0.03 && Math.max(bt, st) < 0.1, "warn", `Steuer: Kauf ${Math.round(bt*100)} %, Verkauf ${Math.round(st*100)} %`);
+    add(t.is_mintable === "1", "warn", "Neue Tokens können gemintet werden");
+    add(t.hidden_owner === "1", "danger", "Versteckter Owner");
+    add(t.can_take_back_ownership === "1", "danger", "Ownership kann zurückgeholt werden");
+    add(t.transfer_pausable === "1", "warn", "Handel kann pausiert werden");
+    add(t.is_blacklisted === "1", "warn", "Blacklist-Funktion");
+    add(t.is_open_source === "0", "danger", "Contract nicht verifiziert");
+    add(t.is_proxy === "1", "warn", "Proxy-Contract (änderbar)");
+    const top10 = (t.holders || []).slice(0, 10).filter(h => !h.is_locked && !h.is_contract).reduce((a, h) => a + f(h.percent), 0) * 100;
+    add(top10 >= 40, top10 >= 60 ? "danger" : "warn", `Top-10-Wallets halten ${Math.round(top10)} %`);
+    const lp = t.lp_holders || [];
+    const locked = lp.filter(h => h.is_locked === 1 || String(h.address || "").toLowerCase().startsWith("0x000000000000000000000000000000000000dead")).reduce((a, h) => a + f(h.percent), 0) * 100;
+    if (lp.length) add(locked < 50, "warn", `Nur ${Math.round(locked)} % der Liquidität gesperrt/verbrannt`);
+    add(f(t.creator_percent) >= 0.05, "warn", `Ersteller hält ${Math.round(f(t.creator_percent)*100)} %`);
+    holders = parseInt(t.holder_count) || null;
+  }
+  const danger = checks.filter(c => c.level === "danger").length, warn = checks.filter(c => c.level === "warn").length;
+  if (safe == null) safe = Math.max(0, 100 - 35 * danger - 12 * warn);
+  return {source, checks, safe_score: safe, holders, level: danger ? "danger" : warn ? "warn" : "ok", at: Date.now() / 1000};
 }
 function safeBadge(sf){
   if (!sf) return '<span class="flat">–</span>';
   if (sf.error) return '<span class="safe warn" title="' + esc(sf.error) + '">?</span>';
   const t = {ok:"OK", warn:"Vorsicht", danger:"Gefahr"}[sf.level];
-  return `<span class="safe ${sf.level}">${t}${sf.safe_score != null ? " " + sf.safe_score : ""}</span>`;
+  return `<span class="safe ${sf.level}">${t}${sf.safe_score != null && sf.level !== "danger" ? " " + sf.safe_score : ""}</span>`;
 }
 
 // ---------- Alarme ----------
@@ -1079,7 +1149,7 @@ function checkBreakouts(){
 }
 let lastAutoSafety = 0, autoXTimes = [], autoBusy = false;
 async function autoTasks(){
-  if (!server || autoBusy) return;
+  if (autoBusy) return;
   autoBusy = true;
   try{
     const ranked = [...data.entries()].map(([k, p]) => [k, p, radarScore(k, p)]).sort((a, b) => b[2] - a[2]);
@@ -1091,7 +1161,7 @@ async function autoTasks(){
       if (todo.length) radarCache.clear();
     }
     // 2) Heiße Coins sofort auf X prüfen
-    if ($("autoX").checked && server.twitter){
+    if ($("autoX").checked && server?.twitter){
       const thr = parseFloat($("autoXThr").value) || 75;
       autoXTimes = autoXTimes.filter(t => Date.now() - t < 60000);
       const hot = ranked.filter(([k, , v]) => v >= thr && safetyMap[k]?.level !== "danger" &&
@@ -1126,6 +1196,30 @@ $("presets").addEventListener("click", e => {
 $("sources").addEventListener("change", () => { lastDiscover = 0; saveSettings(); });
 ["hideDanger","autoSafety","autoX","autoXThr","alBreak"].forEach(id => $(id).addEventListener("change", () => { saveSettings(); render(); }));
 
+// ---------- Links ----------
+const FOMO_CHAIN = {solana:"solana", base:"base", bsc:"bsc"};
+const fomoUrl = p => `https://fomo.family/tokens/${FOMO_CHAIN[p.chainId] || p.chainId}/${encodeURIComponent(p.baseToken.address)}`;
+const xSearchUrl = p => `https://x.com/search?q=${encodeURIComponent(p.baseToken.address)}&f=live`;
+const xTickerUrl = p => `https://x.com/search?q=${encodeURIComponent("$" + (p.baseToken.symbol || ""))}&f=live`;
+function extLinks(p){
+  const ca = encodeURIComponent(p.baseToken.address), c = p.chainId;
+  const gm = {solana:"sol", base:"base", bsc:"bsc"}[c];
+  const L = [];
+  if (c === "solana"){
+    L.push(["RugCheck", `https://rugcheck.xyz/tokens/${ca}`]);
+    L.push(["Solscan", `https://solscan.io/token/${ca}`]);
+    L.push(["Bubblemaps", `https://app.bubblemaps.io/sol/token/${ca}`]);
+  } else {
+    const id = {bsc:"56", base:"8453"}[c];
+    L.push(["GoPlus-Check", `https://gopluslabs.io/token-security/${id}/${ca}`]);
+    L.push([c === "base" ? "Basescan" : "BscScan", c === "base" ? `https://basescan.org/token/${ca}` : `https://bscscan.com/token/${ca}`]);
+    L.push(["Bubblemaps", `https://app.bubblemaps.io/${c === "base" ? "base" : "bsc"}/token/${ca}`]);
+  }
+  L.push(["GMGN", `https://gmgn.ai/${gm}/token/${ca}`]);
+  L.push(["DexScreener", p.url]);
+  return L;
+}
+
 // ---------- Detail-Ansicht ----------
 let drawerKey = null;
 function openDrawer(k){
@@ -1134,22 +1228,50 @@ function openDrawer(k){
   if (!p) return;
   const so = g?.social, mp = marketParts(p);
   const bar = (name, v) => `<span>${name}</span><span class="sb"><i style="width:${Math.round(v*100)}%"></i></span><span class="num">${Math.round(v*100)}</span>`;
+  const sf = safetyMap[k] || safetyErr[k] || g?.safety;
+  const inf = p.info || {}, t5 = p.txns?.m5 || {}, t1 = p.txns?.h1 || {}, t24 = p.txns?.h24 || {};
+  const own = [...(inf.socials || []).map(x => [/(twitter|x)$/i.test(x.type || "") ? "Projekt-X" : (x.type || "Link").replace(/^./, c => c.toUpperCase()), x.url]),
+               ...(inf.websites || []).map(w => [w.label || "Website", w.url])].filter(x => /^https?:/i.test(x[1] || ""));
+  const brk = breakout(k);
   $("drawer").innerHTML = `
-    <div class="dhead"><div><h2>${esc(p.baseToken.symbol)} <span class="chain ${p.chainId}">${CHAIN_LABEL[p.chainId]}</span></h2>
-      <div class="note">${esc(p.baseToken.name)} · ${price(parseFloat(p.priceUsd))} · MC ${money(p.marketCap ?? p.fdv)} · Liq ${money(p.liquidity?.usd)}</div></div>
+    <div class="dhead"><div style="display:flex;gap:12px;align-items:center">${inf.imageUrl ? `<img src="${esc(inf.imageUrl)}" alt="" style="width:44px;height:44px;border-radius:50%">` : ""}<div><h2>${esc(p.baseToken.symbol)} <span class="chain ${p.chainId}">${CHAIN_LABEL[p.chainId]}</span></h2>
+      <div class="note">${esc(p.baseToken.name)}${p.pairCreatedAt ? " · " + age(p.pairCreatedAt) + " alt" : ""}</div></div></div>
       <button class="btn" id="drawerClose">Schließen</button></div>
-    ${g ? `<div>${scoreBadge(k)} <span class="note">Social ${so ? so.social_score : "–"} · Markt ${g.market} · ${ago(g.at)}</span></div>` : `<div class="note">Noch nicht auf X gescannt.</div>`}
-    <div class="act" style="justify-content:flex-start">
-      <button id="rescan">${g ? "Neu scannen" : "Auf X scannen"}</button>
-      <button id="aiBtn" ${server?.ai && so ? "" : "disabled"} title="${server?.ai ? "" : "ANTHROPIC_API_KEY in config.json eintragen"}">KI-Analyse mit Claude</button>
+    <div class="links">
+      <a class="fomo" href="${fomoUrl(p)}" target="_blank" rel="noopener">In FOMO öffnen</a>
+      <a class="xbtn" href="${xSearchUrl(p)}" target="_blank" rel="noopener">CA auf X suchen</a>
+      <a href="${xTickerUrl(p)}" target="_blank" rel="noopener">$${esc(p.baseToken.symbol)} auf X</a>
       <button data-copy2="${esc(p.baseToken.address)}">CA kopieren</button>
-      <a href="${esc(p.url)}" target="_blank" rel="noopener">Chart</a>
-      <a href="https://x.com/search?q=${encodeURIComponent(p.baseToken.address)}&f=live" target="_blank" rel="noopener">Auf X ansehen</a>
+    </div>
+    <div class="ca">${esc(p.baseToken.address)}</div>
+    <div><h3>Überblick</h3><div class="kv">
+      <div><span>Preis</span><b>${price(parseFloat(p.priceUsd))}</b></div>
+      <div><span>Market Cap</span><b>${money(p.marketCap ?? p.fdv)}</b></div>
+      <div><span>Liquidität</span><b>${money(p.liquidity?.usd)}</b></div>
+      <div><span>Vol 1h / 24h</span><b>${money(p.volume?.h1)} / ${money(p.volume?.h24)}</b></div>
+      <div><span>5m / 1h</span><b>${pct(p.priceChange?.m5)} / ${pct(p.priceChange?.h1)}</b></div>
+      <div><span>6h / 24h</span><b>${pct(p.priceChange?.h6)} / ${pct(p.priceChange?.h24)}</b></div>
+      <div><span>Käufe/Verk. 5m</span><b>${t5.buys ?? "–"} / ${t5.sells ?? "–"}</b></div>
+      <div><span>Käufe/Verk. 1h</span><b>${t1.buys ?? "–"} / ${t1.sells ?? "–"}</b></div>
+      <div><span>Käufe/Verk. 24h</span><b>${t24.buys ?? "–"} / ${t24.sells ?? "–"}</b></div>
+      <div><span>Radar-Score</span><b>${radarScore(k, p)}</b></div>
+      <div><span>Ausbruch (1 min)</span><b>${brk != null ? pct(brk) : "–"}</b></div>
+      <div><span>Holder</span><b>${sf?.holders ? fmtN(sf.holders) : "–"}</b></div>
+    </div></div>
+    <div><h3>Sicherheits-Check${sf && !sf.error ? " · " + esc(sf.source || "") + " " + safeBadge(sf) : ""}</h3><div id="safeBox">${
+      !sf ? '<div class="note">Prüfe …</div>' : sf.error ? `<div class="note">${esc(sf.error)}. Nutze die Links unten.</div>` :
+      `<div class="checks">${sf.checks.filter(c => c.level !== "info").slice(0, 12).map(c => `<div><span class="safe ${c.level}">${c.level === "danger" ? "Gefahr" : "Hinweis"}</span><span title="${esc(c.detail || "")}">${esc(c.text)}</span></div>`).join("") || '<div class="note">Keine Auffälligkeiten gefunden.</div>'}</div>`}
+      <div class="note" style="margin-top:6px">Ein grüner Check heißt nicht, dass der Coin sicher ist. Er findet nur bekannte Fallen.</div></div></div>
+    <div><h3>Selbst prüfen</h3><div class="links">${extLinks(p).map(([n, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(n)}</a>`).join("")}</div></div>
+    ${own.length ? `<div><h3>Links vom Projekt</h3><div class="links">${own.map(([n, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(n)}</a>`).join("")}</div></div>` : ""}
+    <div><h3>X-Analyse</h3>
+      ${g ? `<div>${scoreBadge(k)} <span class="note">Social ${so ? so.social_score : "–"} · Markt ${g.market} · ${ago(g.at)}</span></div>` : `<div class="note">${server?.twitter ? "Noch nicht auf X gescannt." : "Die automatische Tweet-Analyse läuft nur mit start.bat auf dem PC. Über „CA auf X suchen“ siehst du die Tweets direkt."}</div>`}
+      <div class="act" style="justify-content:flex-start;margin-top:8px">
+        <button id="rescan" ${server?.twitter ? "" : "disabled"}>${g ? "Neu scannen" : "Auf X scannen"}</button>
+        <button id="aiBtn" ${server?.ai && so ? "" : "disabled"} title="${server?.ai ? "" : "Nur mit start.bat und Claude-Key"}">KI-Analyse mit Claude</button>
+      </div>
     </div>
     <div id="aiBox"></div>
-    ${g?.safety ? `<div><h3>Sicherheits-Check · ${esc(g.safety.source || "")} ${safeBadge(g.safety)}</h3>${g.safety.error ? `<div class="note">${esc(g.safety.error)}</div>` :
-      g.safety.checks.length ? `<div class="checks">${g.safety.checks.filter(c => c.level !== "info").slice(0, 10).map(c => `<div><span class="safe ${c.level}">${c.level === "danger" ? "Gefahr" : "Hinweis"}</span><span title="${esc(c.detail || "")}">${esc(c.text)}</span></div>`).join("") || '<div class="note">Nur unkritische Infos.</div>'}</div>` : '<div class="note">Keine Auffälligkeiten gefunden.</div>'}
-      <div class="note" style="margin-top:6px">Ein grüner Check heißt nicht, dass der Coin sicher ist. Er findet nur bekannte Fallen.</div></div>` : ""}
     ${g && g.flags.length ? `<div><h3>Warnungen</h3><div class="flags" style="justify-content:flex-start;max-width:none">${g.flags.map(f => `<span class="flag">${esc(f)}</span>`).join("")}</div></div>` : ""}
     ${so ? `<div><h3>X / Twitter – letzte Stunde</h3><div class="kv">
       <div><span>Tweets</span><b>${so.mentions_1h}</b></div>
@@ -1188,6 +1310,9 @@ function openDrawer(k){
     try{ await navigator.clipboard.writeText(ev.target.dataset.copy2); toast("Contract-Adresse kopiert"); }catch(e){ toast(ev.target.dataset.copy2); }
   };
   if (g?.ai) showAI(g.ai);
+  if (!safetyMap[k] && !(safetyErr[k] && Date.now() - safetyErr[k].t < 60000)){
+    getSafety(p).then(() => { if (drawerKey === k && !$("drawer").hidden){ const st = $("drawer").scrollTop; openDrawer(k); $("drawer").scrollTop = st; } render(); });
+  }
 }
 function closeDrawer(){ $("drawer").hidden = true; $("backdrop").hidden = true; drawerKey = null; }
 $("backdrop").addEventListener("click", closeDrawer);
@@ -1275,7 +1400,11 @@ $("tbody").addEventListener("click", async e => {
   if (cp){
     try{ await navigator.clipboard.writeText(cp.dataset.copy); toast("Contract-Adresse kopiert"); }
     catch(err){ toast(cp.dataset.copy); }
+    return;
   }
+  if (e.target.closest("a,button,input")) return;
+  const tr = e.target.closest("tr[data-k]");
+  if (tr) openDrawer(tr.dataset.k);
 });
 
 function saveSettings(){
