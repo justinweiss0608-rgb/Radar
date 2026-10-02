@@ -172,6 +172,31 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .fomobar input[type=password]{min-width:220px;flex:1;max-width:360px}
 .hlist{display:flex;flex-direction:column;gap:4px;font-size:13px}
 .hlist div{display:flex;justify-content:space-between;gap:10px;padding:6px 8px;background:var(--panel2);border-radius:6px}
+.xr-set{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 12px;align-items:end}
+.xr-set .wide{grid-column:1/-1}
+.ck{display:inline-flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.ck span{font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;background:var(--panel2);color:var(--faint)}
+.ck span.on{background:var(--up-bg);color:var(--up)}
+.pop.hype{border-left-color:var(--accent);border-width:2px 2px 2px 6px;border-color:var(--accent)}
+.pop.hype .why{color:var(--accent);font-size:12px}
+.pop ul{margin:0;padding-left:16px;font-size:12px;color:var(--ink)}
+.pop.tweet{border-color:var(--base);border-width:2px 2px 2px 6px}
+.pop.tweet .why{color:var(--base)}
+.pop blockquote{margin:0;padding:6px 8px;border-radius:6px;background:var(--panel2);font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:90px;overflow:auto}
+.feed td.txt{white-space:normal;text-align:left;max-width:360px;font-size:12px;color:var(--mute)}
+.pin{background:none;border:0;cursor:pointer;color:var(--faint);font-size:16px}
+.pin.on{color:var(--accent)}
+h2.sec{font:700 18px var(--disp);margin:4px 0 0}
+.pop.fomo{border-color:var(--accent);border-width:2px 2px 2px 6px}
+.pop.fomo .why{color:var(--accent)}
+.live{display:flex;flex-direction:column;gap:6px;max-height:520px;overflow:auto}
+.live .ev{display:grid;grid-template-columns:54px 1fr auto;gap:10px;align-items:start;padding:8px 10px;border-radius:8px;background:var(--panel2);font-size:13px;cursor:pointer}
+.live .ev small{color:var(--mute);font-family:var(--mono)}
+.live .ev .tx{color:var(--mute);font-size:12px;margin-top:3px;white-space:pre-wrap;word-break:break-word}
+.side{font-size:10px;font-weight:800;padding:2px 6px;border-radius:4px;letter-spacing:.04em}
+.side.buy{background:var(--up-bg);color:var(--up)}.side.sell{background:var(--down-bg);color:var(--down)}.side.thesis{background:rgba(79,139,255,.15);color:var(--base)}
+.cols2{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px}
+@media (max-width:900px){.cols2{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){.pop{animation:none}}
 @media (prefers-reduced-motion:reduce){.flash-up,.flash-down{animation:none}}
 </style>
@@ -277,6 +302,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
       <button class="tab" role="tab" id="tabAll" aria-selected="true">Alle Coins <span id="cntAll"></span></button>
       <button class="tab" role="tab" id="tabWatch" aria-selected="false">Watchlist <span id="cntWatch"></span></button>
       <button class="tab" role="tab" id="tabSig" aria-selected="false">Signale <span id="cntSig"></span></button>
+      <button class="tab" role="tab" id="tabX" aria-selected="false">X-Radar <span id="cntX"></span></button>
+      <button class="tab" role="tab" id="tabF" aria-selected="false">FOMO-Live <span id="cntF"></span></button>
     </div>
     <form class="add" id="addForm">
       <input type="text" id="addInput" placeholder="Contract-Adresse aus fomo einfügen und tracken">
@@ -286,6 +313,88 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
   <section class="summary" id="summary"></section>
   <div id="errBox" class="err" hidden></div>
+
+  <section id="fSection" hidden style="display:flex;flex-direction:column;gap:12px">
+    <div class="panel xr-set">
+      <div class="f wide"><label>FOMO-Live: Käufe, Verkäufe und Thesen der fomo-Trader in Echtzeit</label>
+        <div class="note" id="flInfo">Nicht verbunden. Braucht den fomoapi.io-Key (oben im Filterbereich).</div></div>
+      <div class="f"><label for="flOn">Live-Feed</label><select id="flOn"><option value="1" selected>an</option><option value="0">aus</option></select></div>
+      <div class="f"><label for="flWhale">Alarm bei Einzelkauf ab ($)</label><input type="number" id="flWhale" value="2000" min="0" step="500"></div>
+      <div class="f"><label for="flWaveN">Kauf-Welle: verschiedene Käufer in 5 min</label><input type="number" id="flWaveN" value="4" min="2" step="1"></div>
+      <div class="f"><label for="flThesis">Alarm bei These</label><select id="flThesis"><option value="buy" selected>nur wenn der Autor auch gekauft hat</option><option value="all">jede These</option><option value="0">aus</option></select></div>
+      <div class="f"><label for="flThesisUsd">These zählt ab Kauf von ($)</label><input type="number" id="flThesisUsd" value="500" min="0" step="100"></div>
+      <div class="f"><label>&nbsp;</label><button class="btn" id="flLoad" type="button">Letzte 100 laden (125 Credits)</button></div>
+    </div>
+    <div class="cols2">
+      <div class="panel" style="display:flex;flex-direction:column;gap:8px"><h3 style="margin:0;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mute)">Heiße Coins auf fomo (letzte 15 min)</h3>
+        <div class="tablewrap" style="border:0"><table class="sig" style="min-width:640px"><thead><tr><th style="text-align:left">Coin</th><th>Käufer</th><th>Kauf $</th><th>Verkauf $</th><th>Thesen</th><th>MC</th><th>5m</th><th></th></tr></thead><tbody id="fHot"></tbody></table>
+        <div class="empty" id="fHotEmpty">Noch keine Aktivität.</div></div></div>
+      <div class="panel" style="display:flex;flex-direction:column;gap:8px"><h3 style="margin:0;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mute)">Live-Feed</h3>
+        <div class="live" id="fFeed"><div class="note">Warte auf Ereignisse …</div></div></div>
+    </div>
+    <h2 class="sec">Trader-Wirkung</h2>
+    <div class="note">Ø Kursänderung 15 min nach einem Kauf oder einer These des Traders. So siehst du, wer wie lizzerd Coins wirklich bewegt.</div>
+    <div class="flags" id="trBox" style="justify-content:flex-start;max-width:none"></div>
+  </section>
+
+  <section id="xSection" hidden style="display:flex;flex-direction:column;gap:12px">
+    <div class="panel xr-set">
+      <div class="f wide"><label>Tweet-Wächter: beobachtet Coins, die schon im Hype sind, und meldet sich sofort bei einem neuen Tweet</label>
+        <div class="note" id="twInfo">Aus.</div></div>
+      <div class="f"><label for="twN">Wie viele Hype-Coins beobachten</label>
+        <select id="twN"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></div>
+      <div class="f"><label for="twEvery">Auf neue Tweets prüfen</label>
+        <select id="twEvery"><option value="0">aus</option><option value="1">jede Minute</option><option value="2" selected>alle 2 min</option><option value="5">alle 5 min</option></select></div>
+      <div class="f"><label for="twMinF">Alarm ab Follower des Accounts</label><input type="number" id="twMinF" value="5000" min="0" step="1000"></div>
+      <div class="f"><label for="twMinLiq">Hype-Coins: min. Liquidität ($)</label><input type="number" id="twMinLiq" value="25000" min="0" step="5000"></div>
+      <div class="f"><label>&nbsp;</label><button class="btn primary" id="twNow" type="button">Jetzt prüfen</button></div>
+    </div>
+    <h2 class="sec">Hype-Coins unter Beobachtung</h2>
+    <div class="tablewrap">
+      <table class="sig">
+        <thead><tr><th></th><th style="text-align:left">Coin</th><th>Hype</th><th>MC</th><th>Vol 1h</th><th>5m</th><th>1h</th><th>Holder</th><th>Letzter Tweet</th><th>Seit letztem großen Tweet</th><th></th></tr></thead>
+        <tbody id="twBody"></tbody>
+      </table>
+      <div class="empty" id="twEmpty">Noch keine Hype-Coins. Sie werden aus Radar-Score, Volumen, Holdern, FOMO-Haltern und bisherigen Tweets ausgewählt.</div>
+    </div>
+    <h2 class="sec">Neue Tweets zu Hype-Coins</h2>
+    <div class="tablewrap">
+      <table class="sig feed">
+        <thead><tr><th style="text-align:left">Zeit</th><th style="text-align:left">Coin</th><th style="text-align:left">Account</th><th style="text-align:left">Tweet</th><th>Kurs seit Tweet</th><th>nach 5 min</th><th>nach 15 min</th><th></th></tr></thead>
+        <tbody id="feedBody"></tbody>
+      </table>
+      <div class="empty" id="feedEmpty">Noch keine neuen Tweets erkannt.</div>
+    </div>
+    <h2 class="sec">Account-Wirkung</h2>
+    <div class="note" id="authInfo">Hier siehst du, welche Accounts Coins nach ihrem Tweet wirklich bewegen (Ø Kursänderung 5 min nach dem Tweet).</div>
+    <div class="flags" id="authBox" style="justify-content:flex-start;max-width:none"></div>
+
+    <div class="panel xr-set">
+      <div class="f wide"><label>X-Radar: findet Coins über Tweets und meldet sich, wenn alles zusammenpasst</label>
+        <div class="note" id="xrInfo">Aus.</div></div>
+      <div class="f"><label for="xrKey">twitterapi.io-Key (nur ohne start.bat nötig)</label><input type="password" id="xrKey" placeholder="Key einfügen" autocomplete="off"></div>
+      <div class="f"><label for="xrEvery">Tweets suchen</label>
+        <select id="xrEvery"><option value="0">aus</option><option value="1">jede Minute</option><option value="2" selected>alle 2 min</option><option value="5">alle 5 min</option><option value="10">alle 10 min</option></select></div>
+      <div class="f wide"><label for="xrKols">Eigene X-Accounts beobachten (ohne @, mit Komma getrennt)</label><input type="text" id="xrKols" placeholder="z. B. account1, account2, account3"></div>
+      <div class="f wide"><label>Hype-Alarm, wenn ALLES erfüllt ist</label></div>
+      <div class="f"><label for="hA">Min. Accounts posten (30 min)</label><input type="number" id="hA" value="3" min="1"></div>
+      <div class="f"><label for="hR">Min. Reichweite (Follower)</label><input type="number" id="hR" value="20000" min="0" step="1000"></div>
+      <div class="f"><label for="hP">Kurs 5 min mindestens (%)</label><input type="number" id="hP" value="3" step="0.5"></div>
+      <div class="f"><label for="hH">Min. Holder (on-chain)</label><input type="number" id="hH" value="150" min="0" step="10"></div>
+      <div class="f"><label for="hL">Min. Liquidität ($)</label><input type="number" id="hL" value="15000" min="0" step="1000"></div>
+      <div class="f"><label for="hF">Min. FOMO-Halter (leer = egal)</label><input type="number" id="hF" min="0" placeholder="egal"></div>
+      <div class="f"><label>&nbsp;</label><button class="btn primary" id="xrNow" type="button">Jetzt Tweets suchen</button></div>
+    </div>
+    <h2 class="sec">Neu entdeckte Coins aus Tweets</h2>
+    <div class="tablewrap">
+      <table class="sig">
+        <thead><tr><th style="text-align:left">Coin</th><th>Erster Tweet</th><th>Tweets 30m</th><th>Accounts</th><th>Reichweite</th><th>Größter Account</th><th>5m</th><th>1h</th><th>Holder</th><th>Liq</th><th>Checkliste</th><th></th></tr></thead>
+        <tbody id="xBody"></tbody>
+      </table>
+      <div class="empty" id="xEmpty">Noch keine Coins aus Tweets gefunden. Trag einen Key ein oder starte die App über start.bat.</div>
+    </div>
+    <p class="note">So funktioniert es: Die App sucht laufend neue Tweets mit Contract-Adressen und Links zu pump.fun, DexScreener und fomo, und zusätzlich alles, was deine eigenen Accounts posten. Jeder gefundene Coin kommt ins Radar. Sobald genug verschiedene Accounts posten, der Kurs gerade steigt, genug Holder drin sind und der Sicherheits-Check passt, kommt der Hype-Alarm. Kosten: etwa 20 Tweets pro Suche, also bei „alle 2 min“ grob 0,15–0,25 $ pro Stunde.</p>
+  </section>
 
   <section id="sigSection" hidden style="display:flex;flex-direction:column;gap:12px">
     <div class="panel sigbar">
@@ -397,6 +506,7 @@ async function getJSON(path){
   return r.json();
 }
 
+let lastGTBrowser = 0, gtCycle = 0;
 let lastDiscoverGT = 0, newTotal = 0, lastServerNow = 0, gtTotal = 0, searchIdx = 0;
 const SEARCHES = ["pump","pumpswap","raydium","meteora","bonk","moonshot","believe","letsbonk","sol meme",
   "aerodrome","base meme","clanker","zora","virtuals","uniswap base","pancakeswap","four.meme","bnb meme","bsc","cto",
@@ -429,7 +539,35 @@ async function discover(){
       }));
     }
   }
-  if (srcOn("trending") || srcOn("newpools") || srcOn("volume")){
+  if (!server && (srcOn("trending") || srcOn("newpools") || srcOn("volume")) && Date.now() - lastGTBrowser > 55000){
+    // Ohne Server (z. B. GitHub Pages): GeckoTerminal direkt aus dem Browser abfragen
+    lastGTBrowser = Date.now(); gtCycle++;
+    const paths = [];
+    for (const net of ["solana", "base", "bsc"]){
+      if (srcOn("trending")) paths.push([net, "trending_pools?duration=5m&page=1", "trending"]);
+      if (srcOn("newpools") && (net === "solana" || gtCycle % 2 === 0)) paths.push([net, "new_pools?page=1", "neu"]);
+      if (srcOn("volume") && gtCycle % 3 === 0) paths.push([net, "pools?sort=h24_tx_count_desc&page=1", "volume"]);
+    }
+    if (srcOn("trending") && gtCycle % 2 === 1) paths.push(["solana", "trending_pools?duration=1h&page=1", "trending"]);
+    jobs.push((async () => {
+      const out = [];
+      for (const [net, path, src] of paths){
+        try{
+          const r = await fetch(`https://api.geckoterminal.com/api/v2/networks/${net}/${path}`, {headers: {accept: "application/json"}});
+          if (!r.ok) continue;
+          const j = await r.json();
+          for (const pl of (j.data || [])){
+            const id = pl?.relationships?.base_token?.data?.id || "";
+            const i = id.indexOf("_"); if (i < 0) continue;
+            out.push({chain: net, addr: id.slice(i + 1), src});
+          }
+        }catch(e){}
+      }
+      gtTotal = out.length;
+      return out;
+    })());
+  }
+  if (server && (srcOn("trending") || srcOn("newpools") || srcOn("volume"))){
     jobs.push(fetch("/api/discover?since=" + lastServerNow).then(r => r.ok ? r.json() : {tokens:[]}).then(d => {
       if (d.now) lastServerNow = d.now - 5;
       gtTotal = d.total || gtTotal;
@@ -450,7 +588,7 @@ async function discover(){
   newTotal += added;
   trimPool();
   const info = $("srcInfo");
-  if (info) info.textContent = `· ${pool.size} Coins im Radar · +${added} neu in diesem Durchlauf · ${newTotal} neu seit Start` + (server ? ` · GeckoTerminal kennt gerade ${gtTotal}` : " · GeckoTerminal braucht den Server (start.bat)");
+  if (info) info.textContent = `· ${pool.size} Coins im Radar · +${added} neu in diesem Durchlauf · ${newTotal} neu seit Start` + ` · GeckoTerminal: ${gtTotal} Coins` + (server ? " (über start.bat)" : " (direkt im Browser)");
 }
 
 function trimPool(){
@@ -533,6 +671,9 @@ async function refresh(){
     lastMode = full ? `alle ${pool.size}` : `${keys.length} heiße`;
     try{ checkBreakouts(); }catch(e){}
     try{ checkPumps(); }catch(e){}
+    try{ checkHype(); }catch(e){}
+    try{ evalTweetEvents(); }catch(e){}
+    try{ evalFomoEvents(); flushPendingF(); }catch(e){}
     try{ autoTasks(); }catch(e){}
     lastOk = new Date();
     $("errBox").hidden = true;
@@ -667,7 +808,7 @@ function filtered(tabArg){
       if (maxMc != null && !(mc <= maxMc)) continue;
       if (minLiq != null && !((p.liquidity?.usd || 0) >= minLiq)) continue;
       if (minVol != null && !((p.volume?.h24 || 0) >= minVol)) continue;
-      if (maxAge != null && p.pairCreatedAt && (Date.now() - p.pairCreatedAt) / 36e5 > maxAge) continue;
+      if (maxAge != null && maxAge > 0 && p.pairCreatedAt && (Date.now() - p.pairCreatedAt) / 36e5 > maxAge) continue;
     }
     const tv = trendOf(chgFor(k, p, tf), thr);
     if (tr === "up" && tv !== "up") continue;
@@ -696,8 +837,13 @@ function renderHead(){
 }
 
 function render(){
-  const isSig = tab === "signals";
-  $("sigSection").hidden = !isSig; $("mainTable").hidden = isSig; $("summary").hidden = isSig;
+  const isSig = tab === "signals", isX = tab === "xradar", isF = tab === "fomolive";
+  $("sigSection").hidden = !isSig; $("xSection").hidden = !isX; $("fSection").hidden = !isF;
+  $("mainTable").hidden = isSig || isX || isF; $("summary").hidden = isSig || isX || isF;
+  $("cntF").textContent = "(" + fHotList().length + ")";
+  if (isF){ renderF(); statusLine(); prev.clear(); return; }
+  $("cntX").textContent = "(" + Object.keys(xHits).length + ")";
+  if (isX){ renderX(); renderTW(); $("cntAll").textContent = "(" + data.size + ")"; $("cntWatch").textContent = "(" + Object.keys(watch).length + ")"; statusLine(); prev.clear(); return; }
   $("cntSig").textContent = "(" + Object.keys(signals).length + ")";
   evaluateSignals();
   if (isSig){ renderSignals(); $("cntAll").textContent = "(" + data.size + ")"; $("cntWatch").textContent = "(" + Object.keys(watch).length + ")"; statusLine(); prev.clear(); return; }
@@ -816,6 +962,8 @@ function setTab(t){
   $("tabAll").setAttribute("aria-selected", t === "all");
   $("tabWatch").setAttribute("aria-selected", t === "watch");
   $("tabSig").setAttribute("aria-selected", t === "signals");
+  $("tabX").setAttribute("aria-selected", t === "xradar");
+  $("tabF").setAttribute("aria-selected", t === "fomolive");
   render();
 }
 
@@ -1099,11 +1247,11 @@ function beep(){
     });
   }catch(e){}
 }
-function fireAlert(title, body, k, kind){
+function fireAlert(title, body, k, kind, reasons, extra){
   store.set("alerted", alerted);
   alertLog.unshift(`${new Date().toLocaleTimeString("de-DE")} · ${title}`); alertLog = alertLog.slice(0, 6);
   const al = $("alog"); if (al) al.innerHTML = alertLog.map(x => `<span>${esc(x)}</span>`).join("");
-  if (k && data.get(k) && $("alPop").checked) showPop(k, kind || "up", title);
+  if (k && data.get(k) && ($("alPop").checked || kind === "hype" || kind === "tweet" || kind === "fomo")) showPop(k, kind || "up", title, reasons, extra);
   else toast(title);
   if ($("alSound").checked) beep();
   if ($("alBrowser").checked && "Notification" in window && Notification.permission === "granted"){
@@ -1232,12 +1380,12 @@ function checkPumps(){
 
 // ---------- Popups ----------
 const popTimers = new Map();
-function showPop(k, kind, title){
+function showPop(k, kind, title, reasons, extra){
   const p = data.get(k); if (!p) return;
   const box = $("pops");
   box.querySelector(`[data-pop="${CSS.escape(k)}"]`)?.remove();
   const el = document.createElement("div");
-  el.className = "pop " + (kind === "down" ? "down" : kind === "sig" ? "sig" : "");
+  el.className = "pop " + (kind === "down" ? "down" : kind === "sig" ? "sig" : kind === "hype" ? "hype" : kind === "tweet" ? "tweet" : kind === "fomo" ? "fomo" : "");
   el.dataset.pop = k;
   const img = p.info?.imageUrl ? `<img src="${esc(p.info.imageUrl)}" alt="">` : '<span class="ph"></span>';
   const sf = safetyMap[k];
@@ -1246,16 +1394,18 @@ function showPop(k, kind, title){
       <div class="sym">${esc(p.baseToken.symbol)} <span class="chain ${p.chainId}">${CHAIN_LABEL[p.chainId]}</span> ${sf && !sf.error ? safeBadge(sf) : ""}</div></div>
       <button class="x" data-act="close" aria-label="Schließen">×</button></div>
     <div class="meta">MC ${money(p.marketCap ?? p.fdv)} · Liq ${money(p.liquidity?.usd)} · 5m ${p.priceChange?.m5 != null ? (p.priceChange.m5 > 0 ? "+" : "") + p.priceChange.m5.toFixed(1) + "%" : "–"} · Radar ${radarScore(k, p)}${fomoH[k]?.holders != null ? " · FOMO-Halter " + fomoH[k].holders : ""}${freshBuy(k) ? " · " + freshBuy(k).n + " kaufen" : ""}</div>
+    ${extra?.quote ? `<blockquote>${esc(extra.quote)}</blockquote>` : ""}
+    ${reasons?.length ? `<ul>${reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
     <div class="btns">
       <a class="fomo" href="${fomoUrl(p)}" target="_blank" rel="noopener">FOMO</a>
-      <a class="xbtn" href="${xSearchUrl(p)}" target="_blank" rel="noopener">X</a>
+      <a class="xbtn" href="${esc(extra?.tweetUrl || xSearchUrl(p))}" target="_blank" rel="noopener">${extra?.tweetUrl ? "Tweet" : "X"}</a>
       <button data-act="copy">CA</button>
       <button data-act="open">Details</button>
     </div>
     <div class="bar"><i></i></div>`;
   box.appendChild(el);
   while (box.children.length > 4) box.firstElementChild.remove();
-  const life = 45000;
+  const life = kind === "hype" || kind === "tweet" || kind === "fomo" ? 120000 : 45000;
   const bar = el.querySelector(".bar i");
   const start = () => {
     bar.style.transition = "none"; bar.style.width = "100%";
@@ -1453,6 +1603,532 @@ setInterval(() => {
 }, 30000);
 if (fomoKey()) $("fomoKey").value = "••••••••••••";
 setTimeout(fomoStatus, 0);
+
+// ---------- X-Radar: Coins aus Tweets ----------
+let xHits = store.get("xHits", {});        // key -> {first, tweets:[{id,user,f,ts,url,text}]}
+let holdersMap = store.get("holdersMap", {}); // key -> {count, t, prev, prevT}
+let hypeAlerted = store.get("hypeAlerted", {});
+let lastX = 0, xBusy = false, xQi = 0, xMsg = "";
+const X_QUERIES = [
+  '(pump.fun OR "dexscreener.com/solana" OR "fomo.family/tokens" OR "gmgn.ai/sol") -filter:retweets',
+  '(CA OR contract) (solana OR $SOL OR pump OR "send it") -filter:retweets min_faves:2',
+  '("dexscreener.com/base" OR "dexscreener.com/bsc" OR clanker OR four.meme OR "fomo.family/tokens/base") -filter:retweets',
+  '("just aped" OR aping OR "next 100x" OR gem) (pump OR CA OR dexscreener) -filter:retweets min_faves:5',
+];
+const SKIP_ADDR = new Set(["So11111111111111111111111111111111111111112","EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCZ5c5MZZgS"]);
+const xrKey = () => { try{ return (localStorage.getItem("fomoRadar:xrKey") || "").replace(/[^\x21-\x7e]/g, ""); }catch(e){ return ""; } };
+async function xSearch(q){
+  if (server?.twitter){
+    const r = await fetch("/api/xsearch?q=" + encodeURIComponent(q)); const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || "HTTP " + r.status); return j;
+  }
+  const key = xrKey();
+  if (!key) throw new Error("Kein twitterapi.io-Key");
+  let r;
+  try{
+    r = await fetch("https://api.twitterapi.io/twitter/tweet/advanced_search?" + new URLSearchParams({query: q, queryType: "Latest"}), {headers: {"X-API-Key": key}});
+  }catch(e){ throw new Error("twitterapi.io blockt Abfragen direkt aus dem Browser. Starte die App über start.bat"); }
+  if (r.status === 401 || r.status === 403) throw new Error("twitterapi.io-Key ungültig");
+  if (!r.ok) throw new Error("twitterapi.io HTTP " + r.status);
+  return r.json();
+}
+function extractAddrs(t){
+  const parts = [t.text || ""];
+  for (const u of (t.entities?.urls || [])) parts.push(u.expanded_url || u.url || "");
+  const txt = parts.join(" ");
+  const out = new Map();
+  for (const m of txt.matchAll(/0x[a-fA-F0-9]{40}/g)) out.set(m[0].toLowerCase(), "evm");
+  for (const m of txt.replace(/0x[a-fA-F0-9]{40}/g, " ").matchAll(/(?<![A-Za-z0-9])[1-9A-HJ-NP-Za-km-z]{32,44}(?![A-Za-z0-9])/g)){
+    const a = m[0];
+    if (SKIP_ADDR.has(a) || !/[0-9]/.test(a) || !/[a-z]/.test(a) || !/[A-Z]/.test(a)) continue;
+    out.set(a, "solana");
+  }
+  return out;
+}
+async function runXRadar(manual){
+  if (xBusy) return;
+  if (!server?.twitter && !xrKey()){ xMsg = "Trag einen twitterapi.io-Key ein oder starte die App über start.bat."; xrStatus(); if (manual) toast(xMsg); return; }
+  xBusy = true; lastX = Date.now();
+  const kols = $("xrKols").value.split(/[,\s]+/).map(x => x.replace(/^@/, "").trim()).filter(Boolean).slice(0, 20);
+  const qs = [X_QUERIES[xQi++ % X_QUERIES.length], X_QUERIES[xQi++ % X_QUERIES.length]];
+  if (kols.length) qs.push("(" + kols.map(k => "from:" + k).join(" OR ") + ") -filter:retweets");
+  const found = []; let tweets = 0, errs = [];
+  for (const q of qs){
+    try{
+      const j = await xSearch(q);
+      for (const t of (j.tweets || [])){
+        tweets++;
+        const ts = Date.parse(t.createdAt) || Date.now();
+        for (const [addr, kind] of extractAddrs(t)){
+          found.push({addr, kind, tw: {id: t.id, user: t.author?.userName || "?", f: +(t.author?.followers || 0), ts, url: t.url || `https://x.com/${t.author?.userName}/status/${t.id}`, text: (t.text || "").slice(0, 280), likes: +(t.likeCount || 0)}});
+        }
+      }
+    }catch(e){ errs.push(e.message); }
+  }
+  // Adressen Chains zuordnen und Kurse holen
+  const sol = [...new Set(found.filter(f => f.kind === "solana").map(f => f.addr))];
+  const evm = [...new Set(found.filter(f => f.kind === "evm").map(f => f.addr))];
+  const resolved = new Map();  // addr -> key
+  const look = async (chainId, list) => {
+    for (let i = 0; i < list.length; i += 30){
+      try{
+        const pairs = await getJSON(`/tokens/v1/${chainId}/${list.slice(i, i + 30).join(",")}`);
+        for (const p of (pairs || [])){
+          if (!p?.baseToken?.address) continue;
+          const k = keyOf(p.chainId, p.baseToken.address);
+          const cur = data.get(k);
+          if (!cur || (p.liquidity?.usd || 0) > (cur.liquidity?.usd || 0)) data.set(k, p);
+          if (!pool.has(k)) pool.set(k, {chain: p.chainId, addr: p.baseToken.address, firstSeen: Date.now(), src: "x"});
+          resolved.set(chainId === "solana" ? p.baseToken.address : p.baseToken.address.toLowerCase(), k);
+        }
+      }catch(e){}
+    }
+  };
+  await look("solana", sol);
+  await look("base", evm); await look("bsc", evm.filter(a => !resolved.has(a)));
+  let added = 0;
+  for (const f of found){
+    const k = resolved.get(f.addr); if (!k) continue;
+    const h = xHits[k] ||= {first: f.tw.ts, tweets: []};
+    if (!h.tweets.some(x => x.id === f.tw.id)){ h.tweets.push(f.tw); added++; }
+    h.first = Math.min(h.first, f.tw.ts);
+  }
+  // Aufräumen: Tweets älter als 6 h, Coins ohne Tweets
+  const cut = Date.now() - 6 * 36e5;
+  for (const k in xHits){ xHits[k].tweets = xHits[k].tweets.filter(t => t.ts > cut).slice(-60); if (!xHits[k].tweets.length) delete xHits[k]; }
+  store.set("xHits", xHits);
+  xMsg = `Letzte Suche ${new Date().toLocaleTimeString("de-DE")}: ${tweets} Tweets gelesen, ${resolved.size} Coins erkannt, ${added} neue Erwähnungen` + (errs.length ? " · Fehler: " + errs[0] : "");
+  xBusy = false;
+  // Holder für die heißesten Coins holen
+  const hot = Object.keys(xHits).sort((a, b) => xStats(b).authors - xStats(a).authors).slice(0, 8);
+  for (const k of hot){ const p = data.get(k); if (p) await getHolders(k, p); }
+  xrStatus(); checkHype(); render();
+}
+function xStats(k, mins){
+  const h = xHits[k]; if (!h) return {tweets: 0, authors: 0, reach: 0, top: null};
+  const cut = Date.now() - (mins || 30) * 60000;
+  const recent = h.tweets.filter(t => t.ts > cut);
+  const by = new Map(); for (const t of recent) if (!by.has(t.user) || by.get(t.user).f < t.f) by.set(t.user, t);
+  const authors = [...by.values()];
+  const top = authors.sort((a, b) => b.f - a.f)[0] || null;
+  return {tweets: recent.length, authors: authors.length, reach: authors.reduce((a, t) => a + t.f, 0), top, all: h.tweets.length, first: h.first};
+}
+async function getHolders(k, p){
+  const cur = holdersMap[k];
+  if (cur && Date.now() - cur.t < 3 * 60000) return cur.count;
+  let n = null;
+  const sf = safetyMap[k];
+  if (p.chainId !== "solana" && sf?.holders) n = sf.holders;
+  if (n == null){
+    try{
+      const net = {solana: "solana", base: "base", bsc: "bsc"}[p.chainId];
+      const r = await fetch(`https://api.geckoterminal.com/api/v2/networks/${net}/tokens/${p.baseToken.address}/info`, {headers: {accept: "application/json"}});
+      if (r.ok){ const j = await r.json(); const c = j?.data?.attributes?.holders?.count; if (c != null) n = Number(c); }
+    }catch(e){}
+  }
+  if (n == null && p.chainId !== "solana" && !sf){ const s2 = await getSafety(p); if (s2?.holders) n = s2.holders; }
+  if (n != null){
+    holdersMap[k] = {count: n, t: Date.now(), prev: cur?.count ?? null, prevT: cur?.t ?? null};
+    store.set("holdersMap", holdersMap);
+  }
+  return n;
+}
+function hypeChecks(k, p){
+  const st = xStats(k), hd = holdersMap[k]?.count, t5 = p.txns?.m5 || {};
+  const fmin = parseFloat($("hF").value);
+  const sf = safetyMap[k];
+  return [
+    ["Accounts", st.authors >= (+$("hA").value || 3)],
+    ["Reichweite", st.reach >= (+$("hR").value || 0)],
+    ["Steigt", (p.priceChange?.m5 ?? -99) >= (+$("hP").value || 0) && (t5.buys || 0) > (t5.sells || 0)],
+    ["Holder", hd != null && hd >= (+$("hH").value || 0)],
+    ["Liquidität", (p.liquidity?.usd || 0) >= (+$("hL").value || 0)],
+    ["Sicher", !!sf && !sf.error && sf.level !== "danger"],
+    ...(isNaN(fmin) ? [] : [["FOMO", (fomoH[k]?.holders ?? -1) >= fmin]]),
+  ];
+}
+async function checkHype(){
+  for (const k in xHits){
+    const p = data.get(k); if (!p) continue;
+    const st = xStats(k);
+    if (st.authors < (+$("hA").value || 3)) continue;
+    if (!safetyMap[k]) await getSafety(p);
+    if (!holdersMap[k] || Date.now() - holdersMap[k].t > 3 * 60000) await getHolders(k, p);
+    const ck = hypeChecks(k, p);
+    if (!ck.every(c => c[1])) continue;
+    if (Date.now() - (hypeAlerted[k] || 0) < 45 * 60000) continue;
+    hypeAlerted[k] = Date.now(); store.set("hypeAlerted", hypeAlerted);
+    const why = [`${st.authors} Accounts posten (Reichweite ${fmtN(st.reach)})`, st.top ? `Größter: @${st.top.user} (${fmtN(st.top.f)})` : "",
+      `+${(p.priceChange?.m5 ?? 0).toFixed(1)} % in 5 min, Käufe ${p.txns?.m5?.buys}/${p.txns?.m5?.sells}`, `${fmtN(holdersMap[k].count)} Holder · Liq ${money(p.liquidity?.usd)}`, `Sicherheit: ${({ok:"OK",warn:"Vorsicht",danger:"Gefahr"})[safetyMap[k].level]}`].filter(Boolean);
+    fireAlert(`HYPE-ALARM ${p.baseToken.symbol} (${CHAIN_LABEL[p.chainId]})`, why.join("\n") + `\nCA: ${p.baseToken.address}\nFOMO: ${fomoUrl(p)}`, k, "hype", why);
+  }
+}
+function renderX(){
+  const rows = Object.keys(xHits).filter(k => data.has(k)).map(k => [k, data.get(k), xStats(k)])
+    .sort((a, b) => (b[2].authors - a[2].authors) || (b[2].reach - a[2].reach));
+  $("xEmpty").hidden = rows.length > 0;
+  $("xBody").innerHTML = rows.slice(0, 200).map(([k, p, st]) => {
+    const ck = hypeChecks(k, p), hd = holdersMap[k];
+    const g = hd && hd.prev != null ? hd.count - hd.prev : null;
+    return `<tr data-k="${esc(k)}" style="cursor:pointer">
+      <td style="text-align:left"><div class="tok">${p.info?.imageUrl ? `<img src="${esc(p.info.imageUrl)}" alt="" loading="lazy">` : '<span class="ph"></span>'}<div><b>${esc(p.baseToken.symbol)}</b><span class="chain ${p.chainId}">${CHAIN_LABEL[p.chainId]}</span>${ck.every(c => c[1]) ? '<span class="mom">HYPE</span>' : ""}<small>MC ${money(p.marketCap ?? p.fdv)}${p.pairCreatedAt ? " · " + age(p.pairCreatedAt) + " alt" : ""}</small></div></div></td>
+      <td class="num">${ago(st.first)}</td>
+      <td class="num">${st.tweets}<span class="flat"> / ${st.all}</span></td>
+      <td class="num">${st.authors}</td>
+      <td class="num">${fmtN(st.reach)}</td>
+      <td class="num">${st.top ? `<a href="https://x.com/${esc(st.top.user)}" target="_blank" rel="noopener" style="color:var(--accent)">@${esc(st.top.user)}</a> ${fmtN(st.top.f)}` : "–"}</td>
+      <td class="num">${pct(p.priceChange?.m5)}</td>
+      <td class="num">${pct(p.priceChange?.h1)}</td>
+      <td class="num">${hd ? fmtN(hd.count) + (g ? ` <span class="${g > 0 ? "up" : "down"}">${g > 0 ? "+" : ""}${g}</span>` : "") : "–"}</td>
+      <td class="num">${money(p.liquidity?.usd)}</td>
+      <td><div class="ck">${ck.map(([n, ok]) => `<span class="${ok ? "on" : ""}">${ok ? "✓" : "✗"} ${n}</span>`).join("")}</div></td>
+      <td><div class="act"><a href="${fomoUrl(p)}" target="_blank" rel="noopener">FOMO</a><a href="${xSearchUrl(p)}" target="_blank" rel="noopener">X</a></div></td>
+    </tr>`;
+  }).join("");
+}
+function xrStatus(){
+  const every = +$("xrEvery").value;
+  $("xrInfo").textContent = (every ? `Sucht alle ${every} min nach neuen Tweets. ` : "Automatische Suche ist aus. ") +
+    (server?.twitter ? "Läuft über start.bat. " : xrKey() ? "Läuft direkt im Browser. " : "") + (xMsg || "");
+}
+$("xBody").addEventListener("click", e => { if (e.target.closest("a,button")) return; const tr = e.target.closest("tr[data-k]"); if (tr) openDrawer(tr.dataset.k); });
+$("xrKey").addEventListener("change", e => {
+  if (e.target.value.includes("•")) return;
+  try{ localStorage.setItem("fomoRadar:xrKey", e.target.value.replace(/[^\x21-\x7e]/g, "")); }catch(err){}
+  e.target.value = e.target.value.trim() ? "••••••••••••" : "";
+  xrStatus(); if (xrKey()) runXRadar(true);
+});
+$("xrNow").addEventListener("click", () => runXRadar(true));
+["xrEvery","xrKols","hA","hR","hP","hH","hL","hF"].forEach(id => $(id).addEventListener("change", () => {
+  const s = {}; ["xrEvery","xrKols","hA","hR","hP","hH","hL","hF"].forEach(i => s[i] = $(i).value);
+  store.set("xrSettings", s); xrStatus(); render();
+}));
+(() => { const s = store.get("xrSettings", null); if (s) for (const i in s) if ($(i) && s[i] != null) $(i).value = s[i]; })();
+if (xrKey()) $("xrKey").value = "••••••••••••";
+setInterval(() => { const every = +$("xrEvery").value; if (every && Date.now() - lastX > every * 60000 && (server?.twitter || xrKey())) runXRadar(false); }, 15000);
+setTimeout(xrStatus, 1500);
+
+// ---------- Tweet-Wächter: Hype-Coins + neue Tweets ----------
+let twSeen = store.get("twSeen", {});          // key -> [tweetIds]
+let twInit = store.get("twInit", {});          // key -> true, sobald Grundstand erfasst
+let twEvents = store.get("twEvents", []);      // [{k, sym, user, f, t, ts, price, text, url, r5, r15}]
+let twPinned = store.get("twPinned", {});
+let twLast = 0, twBusy = false, twMsg = "", twAlertAt = {};
+function hypeScore(k, p){
+  let v = radarScore(k, p) * 0.4;
+  const st = xStats(k, 360);
+  v += Math.min(25, st.authors * 2.5);
+  const fh = fomoH[k]?.holders; if (fh != null) v += Math.min(15, fh / 3);
+  const fb = freshBuy(k)?.n; if (fb) v += Math.min(10, fb * 2);
+  v += Math.min(12, (p.volume?.h1 || 0) / 25000);
+  const hd = holdersMap[k]?.count; if (hd != null) v += Math.min(10, hd / 150);
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+function hypeList(){
+  const n = +$("twN").value || 10, minLiq = +$("twMinLiq").value || 0;
+  const cand = [...data.entries()].filter(([k, p]) => (p.liquidity?.usd || 0) >= minLiq && safetyMap[k]?.level !== "danger")
+    .map(([k, p]) => [k, p, hypeScore(k, p)]).sort((a, b) => b[2] - a[2]);
+  const out = new Map();
+  for (const k of Object.keys(twPinned)) if (data.has(k)) out.set(k, [k, data.get(k), hypeScore(k, data.get(k))]);
+  for (const k of Object.keys(watch)) if (data.has(k) && out.size < n + 5) out.set(k, [k, data.get(k), hypeScore(k, data.get(k))]);
+  for (const c of cand){ if (out.size >= n + Object.keys(twPinned).length) break; out.set(c[0], c); }
+  return [...out.values()];
+}
+function tickerOf(p){ const t = (p.baseToken.symbol || "").replace(/[^A-Za-z0-9]/g, ""); return t.length >= 4 && t.length <= 10 ? t : null; }
+async function runTweetWatch(manual){
+  if (twBusy) return;
+  if (!server?.twitter && !xrKey()){ twMsg = "Trag unten beim X-Radar einen twitterapi.io-Key ein oder starte die App über start.bat."; twStatus(); if (manual) toast(twMsg); return; }
+  twBusy = true; twLast = Date.now();
+  const list = hypeList();
+  const minF = +$("twMinF").value || 0;
+  let newCount = 0, errs = [];
+  for (let i = 0; i < list.length; i += 4){
+    const batch = list.slice(i, i + 4);
+    const terms = [];
+    for (const [, p] of batch){ terms.push(`"${p.baseToken.address}"`); const t = tickerOf(p); if (t) terms.push("$" + t); }
+    let j;
+    try{ j = await xSearch("(" + terms.join(" OR ") + ") -filter:retweets"); }catch(e){ errs.push(e.message); continue; }
+    for (const tw of (j.tweets || [])){
+      const text = (tw.text || "") + " " + (tw.entities?.urls || []).map(u => u.expanded_url || "").join(" ");
+      const low = text.toLowerCase();
+      for (const [k, p] of batch){
+        const ca = p.baseToken.address, t = tickerOf(p);
+        const hit = text.includes(ca) || low.includes(ca.toLowerCase()) || (t && new RegExp("\\$" + t + "\\b", "i").test(text));
+        if (!hit) continue;
+        const seen = twSeen[k] ||= [];
+        if (seen.includes(tw.id)) continue;
+        seen.push(tw.id); if (seen.length > 300) seen.splice(0, seen.length - 300);
+        const ts = Date.parse(tw.createdAt) || Date.now();
+        const f = +(tw.author?.followers || 0), user = tw.author?.userName || "?";
+        const url = tw.url || `https://x.com/${user}/status/${tw.id}`;
+        // auch in xHits zählen
+        const h = xHits[k] ||= {first: ts, tweets: []};
+        if (!h.tweets.some(x => x.id === tw.id)) h.tweets.push({id: tw.id, user, f, ts, url, text: (tw.text || "").slice(0, 280), likes: +(tw.likeCount || 0)});
+        if (!twInit[k]) continue;                        // erster Durchlauf: nur Grundstand merken
+        if (Date.now() - ts > 15 * 60000) continue;       // zu alt
+        const pr = parseFloat(p.priceUsd);
+        twEvents.unshift({k, sym: p.baseToken.symbol, user, f, t: Date.now(), ts, price: pr, text: (tw.text || "").slice(0, 280), url, r5: null, r15: null});
+        newCount++;
+        if (f >= minF && Date.now() - (twAlertAt[k] || 0) > 3 * 60000){
+          twAlertAt[k] = Date.now();
+          const eff = authorEffect(user);
+          const reasons = [`@${user} · ${fmtN(f)} Follower · ${ago(ts)}`,
+            `Jetzt: MC ${money(p.marketCap ?? p.fdv)} · 5m ${p.priceChange?.m5 != null ? (p.priceChange.m5 > 0 ? "+" : "") + p.priceChange.m5.toFixed(1) + " %" : "–"} · Hype ${hypeScore(k, p)}`,
+            eff ? `Frühere Tweets von @${user}: Ø ${eff.avg > 0 ? "+" : ""}${eff.avg.toFixed(1)} % nach 5 min (${eff.n}×)` : "Noch keine Daten, wie stark @" + user + " Kurse bewegt"];
+          fireAlert(`NEUER TWEET ${p.baseToken.symbol} (${CHAIN_LABEL[p.chainId]})`, reasons.join("\n") + `\n${url}\nFOMO: ${fomoUrl(p)}`, k, "tweet", reasons, {quote: tw.text || "", tweetUrl: url});
+        }
+      }
+    }
+    for (const [k] of batch) twInit[k] = true;
+  }
+  twEvents = twEvents.slice(0, 300);
+  store.set("twSeen", twSeen); store.set("twInit", twInit); store.set("twEvents", twEvents); store.set("xHits", xHits);
+  twMsg = `Letzte Prüfung ${new Date().toLocaleTimeString("de-DE")}: ${list.length} Hype-Coins, ${newCount} neue Tweets` + (errs.length ? " · Fehler: " + errs[0] : "");
+  twBusy = false; twStatus(); render();
+}
+function evalTweetEvents(){
+  let ch = false; const now = Date.now();
+  for (const e of twEvents){
+    const p = data.get(e.k); const pr = parseFloat(p?.priceUsd); if (!(pr > 0) || !(e.price > 0)) continue;
+    if (e.r5 == null && now - e.t >= 5 * 60000 && now - e.t < 12 * 60000){ e.r5 = (pr / e.price - 1) * 100; ch = true; }
+    if (e.r15 == null && now - e.t >= 15 * 60000 && now - e.t < 25 * 60000){ e.r15 = (pr / e.price - 1) * 100; ch = true; }
+  }
+  if (ch) store.set("twEvents", twEvents);
+}
+function authorEffect(user){
+  const xs = twEvents.filter(e => e.user === user && e.r5 != null).map(e => e.r5);
+  return xs.length ? {n: xs.length, avg: xs.reduce((a, b) => a + b, 0) / xs.length} : null;
+}
+function renderTW(){
+  const list = hypeList();
+  $("twEmpty").hidden = list.length > 0;
+  $("twBody").innerHTML = list.map(([k, p, hs]) => {
+    const evs = twEvents.filter(e => e.k === k);
+    const last = evs[0], big = evs.find(e => e.f >= (+$("twMinF").value || 0));
+    const pr = parseFloat(p.priceUsd);
+    const since = big && big.price > 0 ? (pr / big.price - 1) * 100 : null;
+    const hd = holdersMap[k]?.count;
+    return `<tr data-k="${esc(k)}" style="cursor:pointer">
+      <td><button class="pin ${twPinned[k] ? "on" : ""}" data-pin="${esc(k)}" title="Immer beobachten">${twPinned[k] ? "★" : "☆"}</button></td>
+      <td style="text-align:left"><div class="tok">${p.info?.imageUrl ? `<img src="${esc(p.info.imageUrl)}" alt="" loading="lazy">` : '<span class="ph"></span>'}<div><b>${esc(p.baseToken.symbol)}</b><span class="chain ${p.chainId}">${CHAIN_LABEL[p.chainId]}</span><small>${esc(p.baseToken.name)}</small></div></div></td>
+      <td>${`<span class="radar"><span>${hs}</span><span class="sb"><i style="width:${hs}%;background:${scoreCol(hs)}"></i></span></span>`}</td>
+      <td class="num">${money(p.marketCap ?? p.fdv)}</td>
+      <td class="num">${money(p.volume?.h1)}</td>
+      <td class="num">${pct(p.priceChange?.m5)}</td>
+      <td class="num">${pct(p.priceChange?.h1)}</td>
+      <td class="num">${hd != null ? fmtN(hd) : "–"}${fomoH[k]?.holders != null ? `<span class="flat"> · ${fomoH[k].holders} FOMO</span>` : ""}</td>
+      <td class="num">${last ? `${ago(last.t)} · <a href="${esc(last.url)}" target="_blank" rel="noopener" style="color:var(--accent)">@${esc(last.user)}</a>` : "–"}</td>
+      <td class="num">${since != null ? pct(since) + `<span class="flat"> (@${esc(big.user)})</span>` : "–"}</td>
+      <td><div class="act"><a href="${fomoUrl(p)}" target="_blank" rel="noopener">FOMO</a><a href="${xSearchUrl(p)}" target="_blank" rel="noopener">X</a></div></td>
+    </tr>`;
+  }).join("");
+  const feed = twEvents.slice(0, 40);
+  $("feedEmpty").hidden = feed.length > 0;
+  $("feedBody").innerHTML = feed.map(e => {
+    const p = data.get(e.k); const pr = parseFloat(p?.priceUsd);
+    const now = e.price > 0 && pr > 0 ? (pr / e.price - 1) * 100 : null;
+    return `<tr data-k="${esc(e.k)}" style="cursor:pointer">
+      <td class="num" style="text-align:left">${new Date(e.t).toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"})}</td>
+      <td style="text-align:left"><b>${esc(e.sym)}</b></td>
+      <td style="text-align:left"><a href="https://x.com/${esc(e.user)}" target="_blank" rel="noopener" style="color:var(--accent)">@${esc(e.user)}</a> <span class="flat">${fmtN(e.f)}</span></td>
+      <td class="txt">${esc(e.text.slice(0, 140))}</td>
+      <td class="num">${pct(now)}</td>
+      <td class="num">${e.r5 != null ? pct(e.r5) : '<span class="flat">…</span>'}</td>
+      <td class="num">${e.r15 != null ? pct(e.r15) : '<span class="flat">…</span>'}</td>
+      <td><div class="act"><a href="${esc(e.url)}" target="_blank" rel="noopener">Tweet</a>${p ? `<a href="${fomoUrl(p)}" target="_blank" rel="noopener">FOMO</a>` : ""}</div></td>
+    </tr>`;
+  }).join("");
+  const by = {};
+  for (const e of twEvents) if (e.r5 != null){ (by[e.user] ||= {n: 0, sum: 0, f: e.f}); by[e.user].n++; by[e.user].sum += e.r5; }
+  const ranked = Object.entries(by).map(([u, v]) => [u, v.sum / v.n, v.n, v.f]).sort((a, b) => b[1] - a[1]).slice(0, 15);
+  $("authBox").innerHTML = ranked.length ? ranked.map(([u, avg, n, f]) => `<a class="key" href="https://x.com/${esc(u)}" target="_blank" rel="noopener" style="color:${avg > 0 ? "var(--up)" : "var(--down)"}">@${esc(u)} · Ø ${avg > 0 ? "+" : ""}${avg.toFixed(1)} % (${n}×) · ${fmtN(f)}</a>`).join("") : '<span class="note">Noch keine ausgewerteten Tweets. Nach den ersten Alarmen siehst du hier, wer wirklich bewegt.</span>';
+}
+function twStatus(){
+  const every = +$("twEvery").value, n = +$("twN").value || 10;
+  const calls = Math.ceil(n / 4) * (every ? 60 / every : 0);
+  $("twInfo").textContent = (every ? `Prüft alle ${every} min (ca. ${Math.round(calls)} Abfragen/h, grob ${(calls * 20 * 0.00015).toFixed(2)} $/h). ` : "Automatische Prüfung ist aus. ") + (twMsg || "");
+}
+$("twBody").addEventListener("click", e => {
+  const pin = e.target.closest("[data-pin]");
+  if (pin){ const k = pin.dataset.pin; if (twPinned[k]) delete twPinned[k]; else twPinned[k] = true; store.set("twPinned", twPinned); render(); return; }
+  if (e.target.closest("a,button")) return; const tr = e.target.closest("tr[data-k]"); if (tr) openDrawer(tr.dataset.k);
+});
+$("feedBody").addEventListener("click", e => { if (e.target.closest("a,button")) return; const tr = e.target.closest("tr[data-k]"); if (tr && data.get(tr.dataset.k)) openDrawer(tr.dataset.k); });
+$("twNow").addEventListener("click", () => runTweetWatch(true));
+["twN","twEvery","twMinF","twMinLiq"].forEach(id => $(id).addEventListener("change", () => {
+  const s = {}; ["twN","twEvery","twMinF","twMinLiq"].forEach(i => s[i] = $(i).value); store.set("twSettings", s); twStatus(); render();
+}));
+(() => { const s = store.get("twSettings", null); if (s) for (const i in s) if ($(i) && s[i] != null) $(i).value = s[i]; })();
+setInterval(() => { const every = +$("twEvery").value; if (every && data.size && Date.now() - twLast > every * 60000 && (server?.twitter || xrKey())) runTweetWatch(false); }, 15000);
+setTimeout(twStatus, 1500);
+
+// ---------- FOMO-Live (WebSocket von fomoapi.io) ----------
+let fEvents = [];                                   // neueste zuerst
+let fTrack = store.get("fTrack", []);               // [{trader, k, t, price, kind, r15}]
+let fAlertAt = {}, fWs = null, fWsState = "aus", fRetry = 0, fPending = [];
+const fKeyOf = ev => {
+  const chain = normChain(ev.chain || ev.chainId);
+  const addr = ev.tokenAddress || ev.address || ev.mint;
+  return CHAINS.includes(chain) && addr ? {k: keyOf(chain, String(addr)), chain, addr: String(addr)} : null;
+};
+function normEvent(m){
+  const type = String(m.alertType || m.type || "").toLowerCase();
+  const side = String(m.side || (type === "buy" || type === "sell" ? type : "")).toLowerCase();
+  return {
+    kind: type === "thesis" ? "thesis" : side === "sell" ? "sell" : side === "buy" ? "buy" : type,
+    trader: m.trader || m.handle || m.user || "?", token: m.token || m.symbol || "",
+    tokenAddress: m.tokenAddress || m.address || m.mint, chain: m.chain || m.chainId,
+    usd: Number(m.usdValue ?? m.usd ?? m.tradeUsd ?? m.equity ?? 0) || 0,
+    text: m.text || m.thesis || m.body || m.content || "",
+    t: Number(m.ts) > 1e12 ? Number(m.ts) : Number(m.ts) > 1e9 ? Number(m.ts) * 1000 : Date.now(),
+    id: m.tradeId || m.id || (m.trader + ":" + m.ts + ":" + m.tokenAddress),
+  };
+}
+function onFomoEvent(raw){
+  const ev = normEvent(raw);
+  if (!["buy", "sell", "thesis"].includes(ev.kind)) return;
+  const ref = fKeyOf(ev); if (!ref) return;
+  if (fEvents.some(x => x.id === ev.id)) return;
+  ev.k = ref.k;
+  fEvents.unshift(ev); if (fEvents.length > 800) fEvents.length = 800;
+  if (!pool.has(ref.k)) pool.set(ref.k, {chain: ref.chain, addr: ref.addr, firstSeen: Date.now(), src: "fomo"});
+  const p = data.get(ref.k);
+  if ((ev.kind === "buy" || ev.kind === "thesis") && ev.trader){
+    fTrack.unshift({trader: ev.trader, k: ref.k, t: Date.now(), price: p ? parseFloat(p.priceUsd) : null, kind: ev.kind, r15: null});
+    if (fTrack.length > 1500) fTrack.length = 1500;
+  }
+  fPending.push(ev);
+  if (!p) fetchMissingSoon(); else flushPendingF();
+  if (tab === "fomolive") renderFSoon();
+}
+let fetchMissTimer = null;
+function fetchMissingSoon(){
+  if (fetchMissTimer) return;
+  fetchMissTimer = setTimeout(async () => {
+    fetchMissTimer = null;
+    const miss = [...new Set(fPending.map(e => e.k))].filter(k => !data.has(k));
+    if (miss.length){ try{ await fetchPairs(miss); }catch(e){} }
+    for (const t of fTrack) if (t.price == null && data.get(t.k)) t.price = parseFloat(data.get(t.k).priceUsd);
+    flushPendingF(); render();
+  }, 1500);
+}
+function coinAgg(k, mins){
+  const cut = Date.now() - mins * 60000;
+  const evs = fEvents.filter(e => e.k === k && e.t >= cut);
+  const buyers = new Set(evs.filter(e => e.kind === "buy").map(e => e.trader));
+  return {evs, buyers: buyers.size, buyUsd: evs.filter(e => e.kind === "buy").reduce((a, e) => a + e.usd, 0),
+          sellUsd: evs.filter(e => e.kind === "sell").reduce((a, e) => a + e.usd, 0), theses: evs.filter(e => e.kind === "thesis")};
+}
+function traderEffect(tr){
+  const xs = fTrack.filter(x => x.trader === tr && x.r15 != null).map(x => x.r15);
+  return xs.length ? {n: xs.length, avg: xs.reduce((a, b) => a + b, 0) / xs.length} : null;
+}
+function flushPendingF(){
+  const evs = fPending.splice(0);
+  const whale = +$("flWhale").value || 0, waveN = +$("flWaveN").value || 4, thMode = $("flThesis").value, thUsd = +$("flThesisUsd").value || 0;
+  for (const ev of evs){
+    const k = ev.k, p = data.get(k);
+    if (!p){ if (Date.now() - ev.t < 10 * 60000) fPending.push(ev); continue; }
+    if (Date.now() - ev.t > 10 * 60000) continue;                 // alte Ereignisse (z. B. nach "laden") nicht melden
+    if (safetyMap[k]?.level === "danger") continue;
+    const agg = coinAgg(k, 5);
+    const mc = `MC ${money(p.marketCap ?? p.fdv)} · 5m ${p.priceChange?.m5 != null ? (p.priceChange.m5 > 0 ? "+" : "") + p.priceChange.m5.toFixed(1) + " %" : "–"}`;
+    const effLine = tr => { const e = traderEffect(tr); return e ? `Wirkung von ${tr}: Ø ${e.avg > 0 ? "+" : ""}${e.avg.toFixed(1)} % nach 15 min (${e.n}×)` : null; };
+    const fire = (type, title, reasons, quote) => {
+      const key = k + ":" + type;
+      if (Date.now() - (fAlertAt[key] || 0) < 10 * 60000) return;
+      fAlertAt[key] = Date.now();
+      fireAlert(`${title} ${p.baseToken.symbol} (${CHAIN_LABEL[p.chainId]})`, reasons.filter(Boolean).join("\n") + `\nFOMO: ${fomoUrl(p)}`, k, "fomo", reasons.filter(Boolean), quote ? {quote} : null);
+    };
+    if (ev.kind === "thesis" && thMode !== "0"){
+      const own = fEvents.filter(e => e.k === k && e.trader === ev.trader && e.kind === "buy" && Date.now() - e.t < 60 * 60000).reduce((a, e) => a + e.usd, 0);
+      if (thMode === "all" || own >= thUsd)
+        fire("thesis:" + ev.trader, "FOMO-THESE", [`${ev.trader} schreibt eine These${own ? ` und hat für ${money(own)} gekauft` : ""}`, mc, `${agg.buyers} Käufer in 5 min · Kauf ${money(agg.buyUsd)} / Verkauf ${money(agg.sellUsd)}`, effLine(ev.trader)], ev.text);
+    }
+    if (ev.kind === "buy" && whale && ev.usd >= whale)
+      fire("whale:" + ev.trader, "GROSSER FOMO-KAUF", [`${ev.trader} kauft für ${money(ev.usd)}`, mc, effLine(ev.trader)]);
+    if (ev.kind === "buy" && agg.buyers >= waveN && agg.buyUsd > agg.sellUsd * 1.5)
+      fire("wave", "FOMO-KAUFWELLE", [`${agg.buyers} verschiedene fomo-Trader kaufen in 5 min`, `Kauf ${money(agg.buyUsd)} / Verkauf ${money(agg.sellUsd)}`, mc]);
+  }
+}
+function evalFomoEvents(){
+  let ch = false; const now = Date.now();
+  for (const x of fTrack){
+    if (x.r15 != null || !(x.price > 0) || now - x.t < 15 * 60000 || now - x.t > 30 * 60000) continue;
+    const pr = parseFloat(data.get(x.k)?.priceUsd); if (!(pr > 0)) continue;
+    x.r15 = (pr / x.price - 1) * 100; ch = true;
+  }
+  if (ch) store.set("fTrack", fTrack.slice(0, 1500));
+}
+function fHotList(){
+  const ks = new Set(fEvents.filter(e => Date.now() - e.t < 15 * 60000).map(e => e.k));
+  return [...ks].map(k => [k, coinAgg(k, 15)]).sort((a, b) => (b[1].buyers - a[1].buyers) || (b[1].buyUsd - a[1].buyUsd));
+}
+let renderFTimer = null;
+function renderFSoon(){ if (!renderFTimer) renderFTimer = setTimeout(() => { renderFTimer = null; renderF(); }, 400); }
+function renderF(){
+  flStatus();
+  const hot = fHotList().slice(0, 40);
+  $("fHotEmpty").hidden = hot.length > 0;
+  $("fHot").innerHTML = hot.map(([k, a]) => {
+    const p = data.get(k); const sym = p?.baseToken.symbol || a.evs[0]?.token || "?";
+    return `<tr data-k="${esc(k)}" style="cursor:pointer">
+      <td style="text-align:left"><b>${esc(sym)}</b>${p ? `<span class="chain ${p.chainId}">${CHAIN_LABEL[p.chainId]}</span>` : ""}${a.theses.length ? `<small style="display:block;color:var(--mute);max-width:220px;overflow:hidden;text-overflow:ellipsis">„${esc(a.theses[0].text.slice(0, 60))}“ – ${esc(a.theses[0].trader)}</small>` : ""}</td>
+      <td class="num">${a.buyers}</td><td class="num up">${money(a.buyUsd)}</td><td class="num down">${money(a.sellUsd)}</td>
+      <td class="num">${a.theses.length}</td><td class="num">${p ? money(p.marketCap ?? p.fdv) : "–"}</td><td class="num">${p ? pct(p.priceChange?.m5) : "–"}</td>
+      <td><div class="act">${p ? `<a href="${fomoUrl(p)}" target="_blank" rel="noopener">FOMO</a>` : ""}</div></td></tr>`;
+  }).join("");
+  const feed = fEvents.slice(0, 80);
+  $("fFeed").innerHTML = feed.length ? feed.map(e => {
+    const p = data.get(e.k);
+    return `<div class="ev" data-k="${esc(e.k)}"><small>${new Date(e.t).toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit", second: "2-digit"})}</small>
+      <div><b>${esc(e.trader)}</b> <span class="side ${e.kind}">${e.kind === "buy" ? "Kauf" : e.kind === "sell" ? "Verkauf" : "These"}</span> ${esc(p?.baseToken.symbol || e.token)}${e.usd ? ` · ${money(e.usd)}` : ""}${p ? ` · MC ${money(p.marketCap ?? p.fdv)}` : ""}${e.text ? `<div class="tx">${esc(e.text.slice(0, 220))}</div>` : ""}</div>
+      <div class="act">${p ? `<a href="${fomoUrl(p)}" target="_blank" rel="noopener">FOMO</a>` : ""}</div></div>`;
+  }).join("") : '<div class="note">Warte auf Ereignisse …</div>';
+  const by = {};
+  for (const x of fTrack) if (x.r15 != null){ (by[x.trader] ||= {n: 0, s: 0}); by[x.trader].n++; by[x.trader].s += x.r15; }
+  const ranked = Object.entries(by).filter(([, v]) => v.n >= 2).map(([u, v]) => [u, v.s / v.n, v.n]).sort((a, b) => b[1] - a[1]).slice(0, 20);
+  $("trBox").innerHTML = ranked.length ? ranked.map(([u, avg, n]) => `<span class="key" style="color:${avg > 0 ? "var(--up)" : "var(--down)"}">${esc(u)} · Ø ${avg > 0 ? "+" : ""}${avg.toFixed(1)} % (${n}×)</span>`).join("") : '<span class="note">Sammelt noch Daten. Nach ein paar Stunden siehst du hier, welche Trader Coins bewegen.</span>';
+}
+function flStatus(extra){
+  $("flInfo").textContent = !fomoKey() ? "Nicht verbunden. Trag oben im Filterbereich deinen fomoapi.io-Key ein." :
+    `Status: ${fWsState} · ${fEvents.length} Ereignisse empfangen` + (extra ? " · " + extra : "") + ". Gratis-Plan: 7 Tage Echtzeit, danach ca. 15 s Verzögerung.";
+}
+function connectFomoWs(){
+  if (fWs || $("flOn").value !== "1" || !fomoKey()) { flStatus(); return; }
+  try{ fWs = new WebSocket(`wss://api.fomoapi.io/ws/alerts?key=${encodeURIComponent(fomoKey())}`); }
+  catch(e){ fWsState = "Fehler"; flStatus(e.message); return; }
+  fWsState = "verbinde …"; flStatus();
+  fWs.onopen = () => { fWsState = "live verbunden"; fRetry = 0; flStatus(); };
+  fWs.onmessage = msg => {
+    let m; try{ m = JSON.parse(msg.data); }catch(e){ return; }
+    const list = Array.isArray(m) ? m : Array.isArray(m.data) ? m.data : [m];
+    for (const x of list) if (x && (x.type === "alert" || x.alertType || x.side)) onFomoEvent(x);
+    if (fEvents.length % 20 === 0) flStatus();
+  };
+  fWs.onclose = () => {
+    fWs = null; fWsState = "getrennt"; flStatus();
+    if ($("flOn").value === "1" && fomoKey()){ fRetry = Math.min(fRetry + 1, 6); setTimeout(connectFomoWs, 2000 * 2 ** fRetry); }
+  };
+  fWs.onerror = () => { fWsState = "Fehler"; flStatus(); };
+}
+async function loadFomoAlerts(){
+  try{
+    const j = await fomoGet("/v2/alerts?limit=100");
+    const arr = firstArray(j); arr.reverse().forEach(onFomoEvent);
+    flStatus(`${arr.length} letzte Ereignisse geladen`); render();
+  }catch(e){ flStatus("Laden fehlgeschlagen: " + e.message); }
+}
+$("fFeed").addEventListener("click", e => { if (e.target.closest("a")) return; const d = e.target.closest("[data-k]"); if (d && data.get(d.dataset.k)) openDrawer(d.dataset.k); });
+$("fHot").addEventListener("click", e => { if (e.target.closest("a")) return; const d = e.target.closest("tr[data-k]"); if (d && data.get(d.dataset.k)) openDrawer(d.dataset.k); });
+$("flLoad").addEventListener("click", loadFomoAlerts);
+["flOn","flWhale","flWaveN","flThesis","flThesisUsd"].forEach(id => $(id).addEventListener("change", () => {
+  const s = {}; ["flOn","flWhale","flWaveN","flThesis","flThesisUsd"].forEach(i => s[i] = $(i).value); store.set("flSettings", s);
+  if (id === "flOn"){ if ($("flOn").value === "1") connectFomoWs(); else if (fWs){ const w = fWs; fWs = null; w.onclose = null; w.close(); fWsState = "aus"; flStatus(); } }
+}));
+(() => { const s = store.get("flSettings", null); if (s) for (const i in s) if ($(i) && s[i] != null) $(i).value = s[i]; })();
+$("fomoKey").addEventListener("change", () => setTimeout(connectFomoWs, 300));
+setTimeout(connectFomoWs, 2000);
 
 // ---------- Voreinstellungen ----------
 const PRESETS = {
@@ -1663,6 +2339,8 @@ $("resetBtn").addEventListener("click", () => {
 $("tabAll").addEventListener("click", () => setTab("all"));
 $("tabWatch").addEventListener("click", () => setTab("watch"));
 $("tabSig").addEventListener("click", () => setTab("signals"));
+$("tabX").addEventListener("click", () => setTab("xradar"));
+$("tabF").addEventListener("click", () => setTab("fomolive"));
 $("addForm").addEventListener("submit", e => { e.preventDefault(); addToken($("addInput").value); });
 $("headRow").addEventListener("click", e => {
   const th = e.target.closest("th"); if (!th || !th.dataset.s) return;
