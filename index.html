@@ -165,6 +165,13 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .pop .bar{height:3px;background:var(--panel2);border-radius:2px;overflow:hidden}
 .pop .bar i{display:block;height:100%;background:var(--mute);width:100%;transition:width linear}
 @keyframes popin{from{transform:translateY(12px);opacity:0}}
+.fomoc{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;font:600 13px var(--mono)}
+.fomoc small{font:700 10px var(--sans);letter-spacing:.04em;color:var(--accent)}
+.fbuy{display:inline-block;margin-left:6px;font-size:10px;font-weight:800;letter-spacing:.04em;color:var(--accent-ink);background:var(--accent);padding:2px 6px;border-radius:4px}
+.fomobar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.fomobar input[type=password]{min-width:220px;flex:1;max-width:360px}
+.hlist{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.hlist div{display:flex;justify-content:space-between;gap:10px;padding:6px 8px;background:var(--panel2);border-radius:6px}
 @media (prefers-reduced-motion:reduce){.pop{animation:none}}
 @media (prefers-reduced-motion:reduce){.flash-up,.flash-down{animation:none}}
 </style>
@@ -211,6 +218,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <div class="f"><label for="minLiq">Min. Liquidität ($)</label><input type="number" id="minLiq" min="0" step="1000" placeholder="z. B. 10000"></div>
     <div class="f"><label for="minVol">Min. Volumen 24h ($)</label><input type="number" id="minVol" min="0" step="1000" placeholder="z. B. 25000"></div>
     <div class="f"><label for="maxAge">Max. Alter (Stunden)</label><input type="number" id="maxAge" min="0" step="1" placeholder="egal"></div>
+    <div class="f"><label for="minFH">Min. FOMO-Halter</label><input type="number" id="minFH" min="0" step="1" placeholder="z. B. 20"></div>
+    <div class="f"><label for="minFB">Min. FOMO-Käufer gerade</label><input type="number" id="minFB" min="0" step="1" placeholder="z. B. 3"></div>
     <div class="f"><label for="upThr">„Steigt“ ab (%)</label><input type="number" id="upThr" min="0" step="0.5" value="2"></div>
     <div class="f"><label>&nbsp;</label><button class="btn" id="resetBtn">Filter zurücksetzen</button></div>
     <div class="f" style="grid-column:1/-1">
@@ -244,6 +253,21 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <label><input type="checkbox" id="alBreak" checked> Alarm bei Ausbruch (≥ 4 % in 1 min)</label>
         <label><input type="checkbox" id="alPump" checked> Alarm wenn ein Coin steigt (5 min ≥ <input type="number" id="alPumpPct" value="10" min="3" max="100" step="1" style="width:64px"> %)</label>
         <label><input type="checkbox" id="alPop" checked> Popup mit FOMO/X-Buttons anzeigen</label>
+      </div>
+    </div>
+    <div class="f" style="grid-column:1/-1">
+      <label for="fomoKey">FOMO-Halter &amp; FOMO-Käufer (über fomoapi.io)</label>
+      <div class="fomobar">
+        <input type="password" id="fomoKey" placeholder="API-Key von fomoapi.io einfügen" autocomplete="off">
+        <select id="fomoEvery" aria-label="Wie oft laden">
+          <option value="0">nur per Klick</option>
+          <option value="30">alle 30 min</option>
+          <option value="60">alle 60 min</option>
+          <option value="120" selected>alle 2 h (passt ins Gratis-Guthaben)</option>
+        </select>
+        <label class="opts" style="display:flex"><input type="checkbox" id="alFomo" checked> Alarm wenn ≥ <input type="number" id="alFomoN" value="3" min="2" step="1" style="width:56px"> FOMO-Trader gleichzeitig kaufen</label>
+        <button class="btn" id="fomoLoad" type="button">Jetzt laden</button>
+        <span class="note" id="fomoInfo">Ohne Key keine FOMO-Halter. Der Key bleibt nur in deinem Browser.</span>
       </div>
     </div>
   </section>
@@ -592,6 +616,7 @@ const COLS = [
   {k:"price", t:"Preis", s:"price"},
   {k:"mc", t:"Market Cap", s:"mc"},
   {k:"liq", t:"Liquidität", s:"liq"},
+  {k:"fomo", t:"FOMO-Halter", s:"fomo"},
   {k:"vol", t:"Vol 24h", s:"vol"},
   {k:"m5", t:"5m", s:"m5"},
   {k:"h1", t:"1h", s:"h1"},
@@ -620,6 +645,7 @@ function sortVal(k, p, key){
     case "chg": return chgFor(k, p, tf) ?? -1e9;
     case "sig": return signals[k]?.score ?? -1;
     case "radar": return radarScore(k, p);
+    case "fomo": return (fomoH[k]?.holders ?? -1) * 1000 + (fomoBuy[k]?.n || 0);
   }
   return 0;
 }
@@ -648,6 +674,11 @@ function filtered(tabArg){
     if (tr === "down" && tv !== "down") continue;
     if (tr === "mom" && !momentum(p)) continue;
     if (tab !== "watch" && $("hideDanger").checked && safetyMap[k]?.level === "danger") continue;
+    if (tab !== "watch"){
+      const mfh = parseFloat($("minFH").value), mfb = parseFloat($("minFB").value);
+      if (!isNaN(mfh) && !((fomoH[k]?.holders ?? -1) >= mfh)) continue;
+      if (!isNaN(mfb) && !((freshBuy(k)?.n ?? -1) >= mfb)) continue;
+    }
     out.push([k, p]);
   }
   out.sort((a, b) => {
@@ -692,6 +723,7 @@ function render(){
       <td class="num">${price(pr)}</td>
       <td class="num">${money(p.marketCap ?? p.fdv)}</td>
       <td class="num">${money(p.liquidity?.usd)}</td>
+      <td>${fomoCell(k)}</td>
       <td class="num">${money(p.volume?.h24)}</td>
       <td class="num">${pct(p.priceChange?.m5)}</td>
       <td class="num">${pct(p.priceChange?.h1)}</td>
@@ -1157,6 +1189,9 @@ function radarScore(k, p){
   v -= riskFlags(p, null).reduce((a, f) => a + f[1] * 6, 0);
   const sf = safetyMap[k];
   if (sf && !sf.error) v += sf.level === "ok" ? 5 : sf.level === "warn" ? -4 : -35;
+  const fh = fomoH[k]?.holders, fb = freshBuy(k)?.n;
+  if (fh != null) v += fh >= 50 ? 8 : fh >= 20 ? 5 : fh >= 5 ? 2 : 0;
+  if (fb != null) v += fb >= 5 ? 10 : fb >= 3 ? 7 : fb >= 2 ? 3 : 0;
   v = Math.max(0, Math.min(100, Math.round(v)));
   radarCache.set(k, {p, v, t: Date.now()});
   return v;
@@ -1210,7 +1245,7 @@ function showPop(k, kind, title){
     <div class="ph1">${img}<div style="min-width:0"><div class="why">${esc(title.replace(`${p.baseToken.symbol} (${CHAIN_LABEL[p.chainId]}) `, "").replace(/^[▲▼] /, "").replace(`${p.baseToken.symbol} `, ""))}</div>
       <div class="sym">${esc(p.baseToken.symbol)} <span class="chain ${p.chainId}">${CHAIN_LABEL[p.chainId]}</span> ${sf && !sf.error ? safeBadge(sf) : ""}</div></div>
       <button class="x" data-act="close" aria-label="Schließen">×</button></div>
-    <div class="meta">MC ${money(p.marketCap ?? p.fdv)} · Liq ${money(p.liquidity?.usd)} · 5m ${p.priceChange?.m5 != null ? (p.priceChange.m5 > 0 ? "+" : "") + p.priceChange.m5.toFixed(1) + "%" : "–"} · Radar ${radarScore(k, p)}</div>
+    <div class="meta">MC ${money(p.marketCap ?? p.fdv)} · Liq ${money(p.liquidity?.usd)} · 5m ${p.priceChange?.m5 != null ? (p.priceChange.m5 > 0 ? "+" : "") + p.priceChange.m5.toFixed(1) + "%" : "–"} · Radar ${radarScore(k, p)}${fomoH[k]?.holders != null ? " · FOMO-Halter " + fomoH[k].holders : ""}${freshBuy(k) ? " · " + freshBuy(k).n + " kaufen" : ""}</div>
     <div class="btns">
       <a class="fomo" href="${fomoUrl(p)}" target="_blank" rel="noopener">FOMO</a>
       <a class="xbtn" href="${xSearchUrl(p)}" target="_blank" rel="noopener">X</a>
@@ -1268,6 +1303,157 @@ async function autoTasks(){
   } finally { autoBusy = false; }
 }
 
+// ---------- FOMO-Daten (fomoapi.io, inoffiziell) ----------
+const FOMO_API = "https://api.fomoapi.io";
+let fomoH = store.get("fomoH", {});        // key -> {holders, prev, t, prevT}
+let fomoBuy = store.get("fomoBuy", {});    // key -> {n, win, traders, t}
+let fomoHolderLists = {};
+let fomoAlerted = {};
+let lastFomoLoad = store.get("fomoLast", 0);
+let memKey = "";
+const fomoKey = () => { let k = memKey; try{ k = localStorage.getItem("fomoRadar:fomoKey") || memKey; }catch(e){} return (k || "").replace(/[^\x21-\x7e]/g, ""); };
+function normChain(c){
+  c = String(c || "").toLowerCase();
+  if (c.startsWith("sol")) return "solana";
+  if (c === "base" || c === "8453") return "base";
+  if (c === "bsc" || c === "bnb" || c === "56" || c.includes("binance")) return "bsc";
+  return c;
+}
+function firstArray(j){
+  if (Array.isArray(j)) return j;
+  for (const key of ["tokens","data","items","results","leaderboard","activity","holders","rows"]) if (Array.isArray(j?.[key])) return j[key];
+  if (j && typeof j === "object") for (const v of Object.values(j)){ if (Array.isArray(v)) return v; if (v && typeof v === "object"){ const a = firstArray(v); if (a.length) return a; } }
+  return [];
+}
+const pick = (o, ...ks) => { for (const k of ks){ const v = k.split(".").reduce((a, x) => a?.[x], o); if (v != null) return v; } return null; };
+async function fomoGet(path){
+  const key = fomoKey();
+  if (!key) throw new Error("Kein FOMO-API-Key");
+  const r = await fetch(FOMO_API + path, {headers:{authorization: "Bearer " + key, accept: "application/json"}});
+  const left = r.headers.get("x-credits-remaining");
+  if (left != null) store.set("fomoCredits", left);
+  if (r.status === 401 || r.status === 403) throw new Error("Key ungültig");
+  if (r.status === 402) throw new Error("Guthaben aufgebraucht");
+  if (r.status === 429) throw new Error("Zu viele Anfragen");
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+function tokenRef(t){
+  const addr = pick(t, "address", "mint", "tokenAddress", "token.address", "token.mint", "ca");
+  const chain = normChain(pick(t, "chain", "chainId", "network", "token.chain") || (addr && !String(addr).startsWith("0x") ? "solana" : ""));
+  return addr && CHAINS.includes(chain) ? {chain, addr: String(addr)} : null;
+}
+function addToPool(ref, src){
+  const k = keyOf(ref.chain, ref.addr);
+  if (!pool.has(k)) pool.set(k, {chain: ref.chain, addr: ref.addr, firstSeen: Date.now(), src});
+  return k;
+}
+function freshBuy(k){ const b = fomoBuy[k]; return b && Date.now() - b.t < 45 * 60000 ? b : null; }
+function fomoGrowth(k){ const h = fomoH[k]; return h && h.prev != null && h.holders != null ? h.holders - h.prev : null; }
+function fomoCell(k){
+  const h = fomoH[k], b = freshBuy(k), g = fomoGrowth(k);
+  if (!h && !b) return '<span class="flat">–</span>';
+  return `<span class="fomoc"><span>${h?.holders ?? "–"}${g ? ` <span class="${g > 0 ? "up" : "down"}" style="font-size:11px">${g > 0 ? "+" : ""}${g}</span>` : ""}</span>${b ? `<small>${b.n} kaufen gerade</small>` : ""}</span>`;
+}
+function fomoListHtml(k){
+  const L = fomoHolderLists[k];
+  if (!L) return `<div class="note">${fomoKey() ? "Lade die Liste, um zu sehen, welche FOMO-Trader drin sind." : "Trag oben deinen fomoapi.io-Key ein, dann siehst du die FOMO-Trader."}</div>`;
+  if (L.error) return `<div class="err">${esc(L.error)}</div>`;
+  if (!L.items.length) return '<div class="note">Keine FOMO-Trader gefunden.</div>';
+  return `<div class="hlist">${L.items.map(h => `<div><span>${esc(h.handle)}</span><span class="num">${money(h.value)}</span></div>`).join("")}</div><div class="note" style="margin-top:4px">${L.items.length} Trader · Stand ${new Date(L.t).toLocaleTimeString("de-DE")}</div>`;
+}
+async function loadFomoHolders(k, p){
+  const btn = $("fomoHBtn"); if (btn){ btn.disabled = true; btn.textContent = "Lade …"; }
+  try{
+    const j = await fomoGet(`/token/${encodeURIComponent(p.baseToken.address)}/holders?limit=50`);
+    const items = firstArray(j).map(h => ({handle: pick(h, "handle", "username", "name", "user.handle") || "?", value: parseFloat(pick(h, "valueUsd", "usd", "positionUsd", "value")) || 0}));
+    fomoHolderLists[k] = {items, t: Date.now()};
+    const total = pick(j, "count", "total", "holders_count", "holderCount");
+    const old = fomoH[k];
+    const n = typeof total === "number" ? total : (old?.holders != null ? Math.max(old.holders, items.length) : items.length);
+    fomoH[k] = {holders: n, prev: old?.holders ?? null, t: Date.now(), prevT: old?.t ?? null};
+    store.set("fomoH", fomoH); radarCache.delete(k);
+  }catch(e){ fomoHolderLists[k] = {error: "Laden fehlgeschlagen: " + e.message}; }
+  if (drawerKey === k){ const st = $("drawer").scrollTop; openDrawer(k); $("drawer").scrollTop = st; }
+  fomoStatus(); render();
+}
+async function loadFomoBoards(manual){
+  if (!fomoKey()){ if (manual) toast("Erst den FOMO-API-Key eintragen"); return; }
+  $("fomoLoad").disabled = true; $("fomoInfo").textContent = "Lade FOMO-Daten …";
+  let ok = 0, errs = [];
+  // 1) Trending bei FOMO-Usern (mit Halter-Anzahl)
+  try{
+    const j = await fomoGet("/v2/leaderboard/tokens/trending?limit=100");
+    for (const t of firstArray(j)){
+      const ref = tokenRef(t); if (!ref) continue;
+      const k = addToPool(ref, "fomo");
+      const n = pick(t, "holders", "holderCount", "holdersCount");
+      if (n != null){
+        const old = fomoH[k];
+        fomoH[k] = {holders: Number(n), prev: old && old.holders !== Number(n) ? old.holders : (old?.prev ?? null), t: Date.now(), prevT: old?.t ?? null};
+      }
+      ok++;
+    }
+  }catch(e){ errs.push("Trending: " + e.message); }
+  // 2) Mehrere FOMO-Trader kaufen gerade denselben Coin
+  try{
+    const j = await fomoGet("/v2/tokens/activity?side=buy&minTraders=2&limit=100");
+    const alarmN = Math.max(2, parseInt($("alFomoN").value) || 3);
+    for (const a of firstArray(j)){
+      const ref = tokenRef(a) || tokenRef(a.token || {}); if (!ref) continue;
+      if (a.side && String(a.side).toLowerCase() !== "buy") continue;
+      const k = addToPool(ref, "fomo");
+      const n = Number(pick(a, "uniqueTraders", "traders.length", "traderCount")) || 0;
+      const traders = (Array.isArray(a.traders) ? a.traders : []).map(x => typeof x === "string" ? x : (x.handle || x.username || x.name || "")).filter(Boolean);
+      fomoBuy[k] = {n, win: pick(a, "windowMinutes"), traders, t: Date.now()};
+      ok++;
+      if ($("alFomo").checked && n >= alarmN && Date.now() - (fomoAlerted[k] || 0) > 30 * 60000){
+        fomoAlerted[k] = Date.now();
+        pendingFomoAlerts.push([k, n, traders]);
+      }
+    }
+  }catch(e){ errs.push("Käufer: " + e.message); }
+  lastFomoLoad = Date.now(); store.set("fomoLast", lastFomoLoad);
+  store.set("fomoH", fomoH); store.set("fomoBuy", fomoBuy);
+  radarCache.clear();
+  $("fomoLoad").disabled = false;
+  fomoStatus(errs.join(" · "));
+  // neue Coins sofort mit Kursen versorgen, dann Alarme
+  const missing = [...pool.keys()].filter(k => !data.has(k));
+  if (missing.length) { try{ await fetchPairs(missing); }catch(e){} }
+  for (const [k, n, traders] of pendingFomoAlerts.splice(0)){
+    const p = data.get(k); if (!p || safetyMap[k]?.level === "danger") continue;
+    fireAlert(`${p.baseToken.symbol} (${CHAIN_LABEL[p.chainId]}) ${n} FOMO-Trader kaufen gerade`,
+      `${traders.slice(0, 5).join(", ")}\nMC ${money(p.marketCap ?? p.fdv)} · Liq ${money(p.liquidity?.usd)}\nFOMO: ${fomoUrl(p)}`, k, "sig");
+  }
+  render();
+}
+const pendingFomoAlerts = [];
+function fomoStatus(err){
+  const credits = store.get("fomoCredits", null);
+  const every = parseInt($("fomoEvery").value);
+  const nH = Object.keys(fomoH).length, nB = Object.values(fomoBuy).filter(b => Date.now() - b.t < 45 * 60000).length;
+  $("fomoInfo").textContent = !fomoKey() ? "Ohne Key keine FOMO-Halter. Der Key bleibt nur in deinem Browser." :
+    `${nH} Coins mit FOMO-Haltern · ${nB} mit FOMO-Käufen` + (lastFomoLoad ? ` · zuletzt ${new Date(lastFomoLoad).toLocaleTimeString("de-DE")}` : "") +
+    (credits != null ? ` · Guthaben ${Number(credits).toLocaleString("de-DE")} Credits` : "") + (every ? "" : " · automatisch aus") + (err ? " · Fehler: " + err : "");
+}
+$("fomoKey").addEventListener("change", e => {
+  if (e.target.value.includes("•")) return;               // nur der Platzhalter, nichts geändert
+  const v = e.target.value.replace(/[^\x21-\x7e]/g, "");
+  try{ localStorage.setItem("fomoRadar:fomoKey", v); }catch(err){}
+  memKey = v;
+  e.target.value = e.target.value.trim() ? "••••••••••••" : "";
+  fomoStatus(); if (e.target.value) loadFomoBoards(true);
+});
+$("fomoEvery").addEventListener("change", () => { saveSettings(); fomoStatus(); });
+$("fomoLoad").addEventListener("click", () => loadFomoBoards(true));
+setInterval(() => {
+  const every = parseInt($("fomoEvery").value);
+  if (every && fomoKey() && Date.now() - lastFomoLoad > every * 60000) loadFomoBoards(false);
+}, 30000);
+if (fomoKey()) $("fomoKey").value = "••••••••••••";
+setTimeout(fomoStatus, 0);
+
 // ---------- Voreinstellungen ----------
 const PRESETS = {
   quality: {minMc:100000, maxMc:20000000, minLiq:20000, minVol:50000, maxAge:"", trend:"all", tf:"h1"},
@@ -1287,7 +1473,7 @@ $("presets").addEventListener("click", e => {
   saveSettings(); render();
 });
 $("sources").addEventListener("change", () => { lastDiscover = 0; saveSettings(); });
-["hideDanger","autoSafety","autoX","autoXThr","alBreak","alPump","alPumpPct","alPop"].forEach(id => $(id).addEventListener("change", () => { saveSettings(); render(); }));
+["hideDanger","autoSafety","autoX","autoXThr","alBreak","alPump","alPumpPct","alPop","minFH","minFB","alFomo","alFomoN"].forEach(id => $(id).addEventListener("change", () => { saveSettings(); render(); }));
 
 // ---------- Links ----------
 const FOMO_CHAIN = {solana:"solana", base:"base", bsc:"bsc"};
@@ -1349,8 +1535,12 @@ function openDrawer(k){
       <div><span>Käufe/Verk. 24h</span><b>${t24.buys ?? "–"} / ${t24.sells ?? "–"}</b></div>
       <div><span>Radar-Score</span><b>${radarScore(k, p)}</b></div>
       <div><span>Ausbruch (1 min)</span><b>${brk != null ? pct(brk) : "–"}</b></div>
-      <div><span>Holder</span><b>${sf?.holders ? fmtN(sf.holders) : "–"}</b></div>
+      <div><span>FOMO-Halter</span><b>${fomoH[k]?.holders ?? "–"}${fomoGrowth(k) ? ` <span class="${fomoGrowth(k) > 0 ? "up" : "down"}">${fomoGrowth(k) > 0 ? "+" : ""}${fomoGrowth(k)}</span>` : ""}</b></div>
+      <div><span>FOMO-Käufer gerade</span><b>${freshBuy(k) ? freshBuy(k).n + (freshBuy(k).win ? ` in ${freshBuy(k).win} min` : "") : "–"}</b></div>
+      <div><span>Holder (on-chain)</span><b>${sf?.holders ? fmtN(sf.holders) : "–"}</b></div>
     </div></div>
+    <div><h3>FOMO-Trader in diesem Coin</h3><div id="fomoHBox">${fomoListHtml(k)}</div>
+      <div class="act" style="justify-content:flex-start;margin-top:8px"><button id="fomoHBtn" ${fomoKey() ? "" : "disabled"} title="${fomoKey() ? "Kostet 250 Credits" : "Erst FOMO-API-Key eintragen"}">FOMO-Halter laden (250 Credits)</button></div></div>
     <div><h3>Sicherheits-Check${sf && !sf.error ? " · " + esc(sf.source || "") + " " + safeBadge(sf) : ""}</h3><div id="safeBox">${
       !sf ? '<div class="note">Prüfe …</div>' : sf.error ? `<div class="note">${esc(sf.error)}. Nutze die Links unten.</div>` :
       `<div class="checks">${sf.checks.filter(c => c.level !== "info").slice(0, 12).map(c => `<div><span class="safe ${c.level}">${c.level === "danger" ? "Gefahr" : "Hinweis"}</span><span title="${esc(c.detail || "")}">${esc(c.text)}</span></div>`).join("") || '<div class="note">Keine Auffälligkeiten gefunden.</div>'}</div>`}
@@ -1399,6 +1589,7 @@ function openDrawer(k){
     }catch(e){ toast("Scan fehlgeschlagen: " + (e.message || "Server läuft nicht")); $("rescan").disabled = false; $("rescan").textContent = "Neu scannen"; }
   };
   $("aiBtn").onclick = () => runAI(k);
+  $("fomoHBtn").onclick = () => loadFomoHolders(k, p);
   $("drawer").querySelector("[data-copy2]").onclick = async ev => {
     try{ await navigator.clipboard.writeText(ev.target.dataset.copy2); toast("Contract-Adresse kopiert"); }catch(e){ toast(ev.target.dataset.copy2); }
   };
@@ -1463,7 +1654,7 @@ $("pauseBtn").addEventListener("click", () => {
   if (paused) { clearInterval(timer); setStatus("off", "Pausiert"); } else refresh();
 });
 $("resetBtn").addEventListener("click", () => {
-  ["q","minMc","maxMc","minLiq","minVol","maxAge"].forEach(id => $(id).value = "");
+  ["q","minMc","maxMc","minLiq","minVol","maxAge","minFH","minFB"].forEach(id => $(id).value = "");
   $("upThr").value = 2; $("trend").value = "all"; $("tf").value = "h1";
   document.querySelectorAll("#presets .chip").forEach(c => c.setAttribute("aria-pressed", "false"));
   chain = "all"; document.querySelectorAll("#chainChips .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.chain === "all"));
@@ -1505,6 +1696,8 @@ function saveSettings(){
   document.querySelectorAll("#sources [data-src]").forEach(c => s.src[c.dataset.src] = c.checked);
   ["alStrong","alWatch","alSound","alBrowser","alRemote","hideDanger","autoSafety","autoX","alBreak","alPump","alPop"].forEach(id => s.al[id] = $(id).checked);
   s.autoXThr = $("autoXThr").value; s.alPumpPct = $("alPumpPct").value;
+  s.minFH = $("minFH").value; s.minFB = $("minFB").value; s.fomoEvery = $("fomoEvery").value;
+  s.alFomo = $("alFomo").checked; s.alFomoN = $("alFomoN").value;
   s.alWatchPct = $("alWatchPct").value;
   ["q","tf","trend","minMc","maxMc","minLiq","minVol","maxAge","upThr","interval","scanN","autoScan"].forEach(id => s[id] = $(id).value);
   store.set("settings", s);
@@ -1517,6 +1710,8 @@ function loadSettings(){
   if (s.alWatchPct) $("alWatchPct").value = s.alWatchPct;
   if (s.autoXThr) $("autoXThr").value = s.autoXThr;
   if (s.alPumpPct) $("alPumpPct").value = s.alPumpPct;
+  ["minFH","minFB","fomoEvery","alFomoN"].forEach(id => { if (s[id] != null) $(id).value = s[id]; });
+  if (s.alFomo != null) $("alFomo").checked = s.alFomo;
   if (s.chain){ chain = s.chain; document.querySelectorAll("#chainChips .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.chain === chain)); }
 }
 
