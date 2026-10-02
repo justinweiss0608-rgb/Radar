@@ -148,6 +148,24 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .links .fomo{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .links .xbtn{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .ca{font:12px var(--mono);color:var(--mute);word-break:break-all;background:var(--panel2);padding:6px 8px;border-radius:6px}
+.pops{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:30;display:flex;flex-direction:column-reverse;gap:10px;width:min(380px,calc(100% - 32px));pointer-events:none}
+.pop{pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--up);border-radius:12px;padding:12px;box-shadow:0 12px 32px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:9px;animation:popin .25s ease-out}
+.pop.down{border-left-color:var(--down)}.pop.sig{border-left-color:var(--accent)}
+.pop .ph1{display:flex;align-items:center;gap:10px}
+.pop .ph1 img,.pop .ph1 .ph{width:34px;height:34px;border-radius:50%;background:var(--panel2);flex:none;object-fit:cover}
+.pop .why{font:800 11px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--up)}
+.pop.down .why{color:var(--down)}.pop.sig .why{color:var(--accent)}
+.pop .sym{font:700 17px/1.1 var(--disp)}
+.pop .x{margin-left:auto;background:none;border:0;color:var(--mute);font-size:20px;cursor:pointer;line-height:1;padding:2px 4px;align-self:flex-start}
+.pop .meta{font:12px var(--mono);color:var(--mute);font-variant-numeric:tabular-nums}
+.pop .btns{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.pop .btns a,.pop .btns button{padding:7px 4px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);text-decoration:none;font-weight:700;font-size:12px;text-align:center;cursor:pointer}
+.pop .btns .fomo{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.pop .btns .xbtn{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.pop .bar{height:3px;background:var(--panel2);border-radius:2px;overflow:hidden}
+.pop .bar i{display:block;height:100%;background:var(--mute);width:100%;transition:width linear}
+@keyframes popin{from{transform:translateY(12px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.pop{animation:none}}
 @media (prefers-reduced-motion:reduce){.flash-up,.flash-down{animation:none}}
 </style>
 </head>
@@ -223,7 +241,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <label><input type="checkbox" id="hideDanger" checked> Coins mit Sicherheits-Gefahr ausblenden</label>
         <label><input type="checkbox" id="autoSafety" checked> Top-Coins automatisch auf Sicherheit prüfen (kostenlos)</label>
         <label><input type="checkbox" id="autoX"> Heiße Coins sofort auf X prüfen (Radar ≥ <input type="number" id="autoXThr" value="75" min="50" max="95" step="5" style="width:64px">, max. 3 pro Minute)</label>
-        <label><input type="checkbox" id="alBreak" checked> Alarm bei Ausbruch</label>
+        <label><input type="checkbox" id="alBreak" checked> Alarm bei Ausbruch (≥ 4 % in 1 min)</label>
+        <label><input type="checkbox" id="alPump" checked> Alarm wenn ein Coin steigt (5 min ≥ <input type="number" id="alPumpPct" value="10" min="3" max="100" step="1" style="width:64px"> %)</label>
+        <label><input type="checkbox" id="alPop" checked> Popup mit FOMO/X-Buttons anzeigen</label>
       </div>
     </div>
   </section>
@@ -283,6 +303,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
     </table>
     <div class="empty" id="empty" hidden>Keine Coins passen zu den Filtern.</div>
   </div>
+  <div class="pops" id="pops" aria-live="polite"></div>
   <div class="backdrop" id="backdrop" hidden></div>
   <aside class="drawer" id="drawer" hidden aria-label="Coin-Analyse"></aside>
   <p class="note">Coins werden laufend aus den neuesten und geboosteten Tokens auf DexScreener entdeckt (Solana, Base, BNB – dieselben Chains wie fomo). Eigene Coins fügst du per Contract-Adresse hinzu. „Seit Beobachtung“ misst die Kursänderung, seit diese Seite den Coin zum ersten Mal gesehen hat. Keine Anlageberatung.</p>
@@ -487,6 +508,7 @@ async function refresh(){
     if (full) lastFull = now;
     lastMode = full ? `alle ${pool.size}` : `${keys.length} heiße`;
     try{ checkBreakouts(); }catch(e){}
+    try{ checkPumps(); }catch(e){}
     try{ autoTasks(); }catch(e){}
     lastOk = new Date();
     $("errBox").hidden = true;
@@ -861,7 +883,7 @@ async function scanOne(k, p, force){
   if (g.label === "Stark" && g.safety?.level !== "danger" && $("alStrong").checked && !(before && before.label === "Stark" && Date.now() - (alerted[k] || 0) < 60 * 60000)){
     alerted[k] = Date.now();
     fireAlert(`${g.sym} (${CHAIN_LABEL[g.chain]}) X-Signal ${g.score}: Stark`,
-      `${so.mentions_1h} Tweets/h, Tempo ${so.velocity}×, MC ${money(p.marketCap ?? p.fdv)}\nCA: ${g.ca}\n${p.url}`);
+      `${so.mentions_1h} Tweets/h, Tempo ${so.velocity}×, MC ${money(p.marketCap ?? p.fdv)}\nCA: ${g.ca}\nFOMO: ${fomoUrl(p)}`, k, "sig");
   }
   return g;
 }
@@ -1045,14 +1067,18 @@ function beep(){
     });
   }catch(e){}
 }
-function fireAlert(title, body){
+function fireAlert(title, body, k, kind){
   store.set("alerted", alerted);
   alertLog.unshift(`${new Date().toLocaleTimeString("de-DE")} · ${title}`); alertLog = alertLog.slice(0, 6);
   const al = $("alog"); if (al) al.innerHTML = alertLog.map(x => `<span>${esc(x)}</span>`).join("");
-  toast(title);
+  if (k && data.get(k) && $("alPop").checked) showPop(k, kind || "up", title);
+  else toast(title);
   if ($("alSound").checked) beep();
   if ($("alBrowser").checked && "Notification" in window && Notification.permission === "granted"){
-    try{ new Notification(title, {body}); }catch(e){}
+    try{
+      const n = new Notification(title, {body, tag: k || undefined});
+      n.onclick = () => { window.focus(); if (k && data.get(k)) openDrawer(k); n.close(); };
+    }catch(e){}
   }
   if ($("alRemote").checked && server && (server.discord || server.telegram)){
     fetch("/api/notify", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({text: title + "\n" + body})})
@@ -1072,7 +1098,7 @@ function checkWatchAlerts(){
       watchStep[k] = step; changed = true;
       if (step !== 0 && Math.abs(step) > Math.abs(last)){
         fireAlert(`${step > 0 ? "▲" : "▼"} ${p.baseToken.symbol} ${c > 0 ? "+" : ""}${c.toFixed(0)} % seit du ihn beobachtest`,
-          `Preis ${p.priceUsd} $ · MC ${money(p.marketCap ?? p.fdv)}\n${p.url}`);
+          `Preis ${p.priceUsd} $ · MC ${money(p.marketCap ?? p.fdv)}\nFOMO: ${fomoUrl(p)}`, k, step > 0 ? "up" : "down");
       }
     }
   }
@@ -1090,7 +1116,11 @@ $("alRemote").addEventListener("change", e => {
   saveSettings();
 });
 ["alStrong","alWatch","alWatchPct","alSound"].forEach(id => $(id).addEventListener("change", saveSettings));
-$("alTest").addEventListener("click", () => fireAlert("Test-Alarm vom FOMO Radar", "Wenn du das siehst, funktionieren die Alarme."));
+$("alTest").addEventListener("click", () => {
+  const top = [...data.entries()].sort((a, b) => radarScore(b[0], b[1]) - radarScore(a[0], a[1]))[0];
+  fireAlert(top ? `${top[1].baseToken.symbol} (${CHAIN_LABEL[top[1].chainId]}) Test-Alarm` : "Test-Alarm vom FOMO Radar",
+    "Wenn du das siehst, funktionieren die Alarme.", top ? top[0] : null, "sig");
+});
 
 // ---------- Radar-Score für jeden Coin (kostenlos, nur Marktdaten) ----------
 let safetyMap = store.get("safety", {});
@@ -1144,8 +1174,71 @@ function checkBreakouts(){
     if ((p.liquidity?.usd || 0) < 8000 || safetyMap[k]?.level === "danger") continue;
     brkAlerted[k] = Date.now();
     fireAlert(`AUSBRUCH ${p.baseToken.symbol} (${CHAIN_LABEL[p.chainId]}) +${b.toFixed(1)} % in ~1 min`,
-      `MC ${money(p.marketCap ?? p.fdv)} · Liq ${money(p.liquidity?.usd)} · Radar ${radarScore(k, p)}\nCA: ${p.baseToken.address}\n${p.url}`);
+      `MC ${money(p.marketCap ?? p.fdv)} · Liq ${money(p.liquidity?.usd)} · Radar ${radarScore(k, p)}\nCA: ${p.baseToken.address}\nFOMO: ${fomoUrl(p)}`, k, "up");
   }
+}
+let pumpAlerted = {};
+const startedAt = Date.now();
+function checkPumps(){
+  if (!$("alPump").checked) return;
+  const thr = Math.max(3, parseFloat($("alPumpPct").value) || 10);
+  let fired = 0;
+  for (const [k, p] of data){
+    const m5 = p.priceChange?.m5, t5 = p.txns?.m5 || {};
+    if (m5 == null || m5 < thr || (t5.buys || 0) <= (t5.sells || 0)) continue;
+    if ((p.liquidity?.usd || 0) < 8000 || safetyMap[k]?.level === "danger") continue;
+    if (Date.now() - (pumpAlerted[k] || 0) < 20 * 60000 || Date.now() - (brkAlerted[k] || 0) < 5 * 60000) continue;
+    pumpAlerted[k] = Date.now();
+    if (Date.now() - startedAt < 60000 || ++fired > 3) continue;   // beim Start nicht alles auf einmal melden
+    fireAlert(`${p.baseToken.symbol} (${CHAIN_LABEL[p.chainId]}) steigt: +${m5.toFixed(1)} % in 5 min`,
+      `MC ${money(p.marketCap ?? p.fdv)} · Liq ${money(p.liquidity?.usd)} · Käufe ${t5.buys}/${t5.sells}\nCA: ${p.baseToken.address}\nFOMO: ${fomoUrl(p)}`, k, "up");
+  }
+}
+
+// ---------- Popups ----------
+const popTimers = new Map();
+function showPop(k, kind, title){
+  const p = data.get(k); if (!p) return;
+  const box = $("pops");
+  box.querySelector(`[data-pop="${CSS.escape(k)}"]`)?.remove();
+  const el = document.createElement("div");
+  el.className = "pop " + (kind === "down" ? "down" : kind === "sig" ? "sig" : "");
+  el.dataset.pop = k;
+  const img = p.info?.imageUrl ? `<img src="${esc(p.info.imageUrl)}" alt="">` : '<span class="ph"></span>';
+  const sf = safetyMap[k];
+  el.innerHTML = `
+    <div class="ph1">${img}<div style="min-width:0"><div class="why">${esc(title.replace(`${p.baseToken.symbol} (${CHAIN_LABEL[p.chainId]}) `, "").replace(/^[▲▼] /, "").replace(`${p.baseToken.symbol} `, ""))}</div>
+      <div class="sym">${esc(p.baseToken.symbol)} <span class="chain ${p.chainId}">${CHAIN_LABEL[p.chainId]}</span> ${sf && !sf.error ? safeBadge(sf) : ""}</div></div>
+      <button class="x" data-act="close" aria-label="Schließen">×</button></div>
+    <div class="meta">MC ${money(p.marketCap ?? p.fdv)} · Liq ${money(p.liquidity?.usd)} · 5m ${p.priceChange?.m5 != null ? (p.priceChange.m5 > 0 ? "+" : "") + p.priceChange.m5.toFixed(1) + "%" : "–"} · Radar ${radarScore(k, p)}</div>
+    <div class="btns">
+      <a class="fomo" href="${fomoUrl(p)}" target="_blank" rel="noopener">FOMO</a>
+      <a class="xbtn" href="${xSearchUrl(p)}" target="_blank" rel="noopener">X</a>
+      <button data-act="copy">CA</button>
+      <button data-act="open">Details</button>
+    </div>
+    <div class="bar"><i></i></div>`;
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstElementChild.remove();
+  const life = 45000;
+  const bar = el.querySelector(".bar i");
+  const start = () => {
+    bar.style.transition = "none"; bar.style.width = "100%";
+    requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.transition = `width ${life}ms linear`; bar.style.width = "0%"; }));
+    popTimers.set(el, setTimeout(() => el.remove(), life));
+  };
+  const stop = () => { clearTimeout(popTimers.get(el)); bar.style.transition = "none"; bar.style.width = "100%"; };
+  el.addEventListener("mouseenter", stop);
+  el.addEventListener("mouseleave", start);
+  el.addEventListener("click", async e => {
+    const a = e.target.closest("[data-act]"); if (!a) return;
+    if (a.dataset.act === "close") el.remove();
+    if (a.dataset.act === "open"){ openDrawer(k); }
+    if (a.dataset.act === "copy"){
+      try{ await navigator.clipboard.writeText(p.baseToken.address); toast("Contract-Adresse kopiert"); }catch(err){ toast(p.baseToken.address); }
+    }
+  });
+  start();
 }
 let lastAutoSafety = 0, autoXTimes = [], autoBusy = false;
 async function autoTasks(){
@@ -1194,7 +1287,7 @@ $("presets").addEventListener("click", e => {
   saveSettings(); render();
 });
 $("sources").addEventListener("change", () => { lastDiscover = 0; saveSettings(); });
-["hideDanger","autoSafety","autoX","autoXThr","alBreak"].forEach(id => $(id).addEventListener("change", () => { saveSettings(); render(); }));
+["hideDanger","autoSafety","autoX","autoXThr","alBreak","alPump","alPumpPct","alPop"].forEach(id => $(id).addEventListener("change", () => { saveSettings(); render(); }));
 
 // ---------- Links ----------
 const FOMO_CHAIN = {solana:"solana", base:"base", bsc:"bsc"};
@@ -1410,8 +1503,8 @@ $("tbody").addEventListener("click", async e => {
 function saveSettings(){
   const s = {chain, src:{}, al:{}};
   document.querySelectorAll("#sources [data-src]").forEach(c => s.src[c.dataset.src] = c.checked);
-  ["alStrong","alWatch","alSound","alBrowser","alRemote","hideDanger","autoSafety","autoX","alBreak"].forEach(id => s.al[id] = $(id).checked);
-  s.autoXThr = $("autoXThr").value;
+  ["alStrong","alWatch","alSound","alBrowser","alRemote","hideDanger","autoSafety","autoX","alBreak","alPump","alPop"].forEach(id => s.al[id] = $(id).checked);
+  s.autoXThr = $("autoXThr").value; s.alPumpPct = $("alPumpPct").value;
   s.alWatchPct = $("alWatchPct").value;
   ["q","tf","trend","minMc","maxMc","minLiq","minVol","maxAge","upThr","interval","scanN","autoScan"].forEach(id => s[id] = $(id).value);
   store.set("settings", s);
@@ -1423,6 +1516,7 @@ function loadSettings(){
   if (s.al) for (const id in s.al) if ($(id)) $(id).checked = s.al[id];
   if (s.alWatchPct) $("alWatchPct").value = s.alWatchPct;
   if (s.autoXThr) $("autoXThr").value = s.autoXThr;
+  if (s.alPumpPct) $("alPumpPct").value = s.alPumpPct;
   if (s.chain){ chain = s.chain; document.querySelectorAll("#chainChips .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.chain === chain)); }
 }
 
